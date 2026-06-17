@@ -6,7 +6,7 @@
 // ============ 配置项（必改） ============
 const WECOM_KOMARI_URL = "http://your-server:8080";  // wecom-komari 服务地址
 const SENDKEY = "your-sendkey";                       // 认证密钥
-const TG_CHAT_ID = 691245891;                         // Telegram Chat ID
+const TG_CHAT_ID = 0;                                  // Telegram Chat ID
 const WECOM_USER = "@all";                            // 企业微信接收人（@all=所有人）
 
 // ============ 事件 emoji 映射 ============
