@@ -37,9 +37,6 @@ var (
 	httpClient        = &http.Client{Timeout: 60 * time.Second}
 	sessToken         string
 	sessMu            sync.RWMutex
-	nodeCache         []KomariNode
-	nodeCacheTime     time.Time
-	nodeCacheMu       sync.RWMutex
 	wecomToken        string
 	wecomTokenExpire  time.Time
 	wecomTokenMu      sync.RWMutex
@@ -133,16 +130,7 @@ func komariReq(method, path string) ([]byte, error) {
 	return httpDo(method, KomariUrl+path, nil, headers)
 }
 
-const nodeCacheDur = 10 * time.Second
-
 func getNodeList() ([]KomariNode, error) {
-	nodeCacheMu.RLock()
-	if nodeCache != nil && time.Since(nodeCacheTime) < nodeCacheDur {
-		ns := nodeCache
-		nodeCacheMu.RUnlock()
-		return ns, nil
-	}
-	nodeCacheMu.RUnlock()
 	b, err := komariReq("GET", "/api/nodes")
 	if err != nil {
 		return nil, err
@@ -158,10 +146,6 @@ func getNodeList() ([]KomariNode, error) {
 	if err := json.Unmarshal(r.Data, &nodes); err != nil {
 		return nil, err
 	}
-	nodeCacheMu.Lock()
-	nodeCache = nodes
-	nodeCacheTime = time.Now()
-	nodeCacheMu.Unlock()
 	return nodes, nil
 }
 
