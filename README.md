@@ -6,32 +6,26 @@
 
 ## 功能
 
-- ✅ 企业微信消息推送
-- ✅ 企业微信回调机器人
-- ✅ Telegram Bot 交互
-- ✅ 节点状态查询
-- ✅ 节点列表展示
-- ✅ 实时数据获取
-- ✅ 历史记录查询
+- ✅ 企业微信消息推送 & 回调机器人
+- ✅ Telegram Bot 交互（内联键盘）
+- ✅ 节点状态 / 列表 / 详情 / 离线节点查询
+- ✅ Ping 检测（ICMP 延迟 + 丢包率）
+- ✅ 性能排行（CPU / 内存 / 上传 / 下载，切换按钮）
+- ✅ 负载历史图表（1h / 6h / 24h / 7d / 30d）
+- ✅ 分组查看 & 分组节点列表
+- ✅ 站点信息 & 系统版本查询
 - ✅ 健康评分系统
-- ✅ 内联键盘操作
+- ✅ Komari 通知转发脚本（离线/上线/告警 → TG + 企业微信）
 
 ## 快速开始
 
 ### Docker 部署 (推荐)
 
 ```bash
-# 克隆项目
 git clone https://github.com/gowfqk/wecom-komari.git
 cd wecom-komari
-
-# 创建环境变量文件
 cp .env.example .env
-
-# 编辑配置
 vi .env
-
-# 启动服务
 docker-compose up -d
 ```
 
@@ -56,20 +50,45 @@ docker-compose up -d
 
 ### Telegram Bot 命令
 
-- `/status` - 服务器状态概览
-- `/list` - 所有节点列表
-- `/help` - 帮助信息
+| 命令 | 说明 |
+|------|------|
+| `/status` | 服务器状态概览（在线/离线/总数） |
+| `/list` | 所有节点列表 |
+| `/offline` | 离线节点列表 |
+| `/ping` | Ping 所有节点（延迟 + 丢包率） |
+| `/rank` | 性能排行（CPU/内存/网络切换） |
+| `/info` | 站点信息 & Komari 版本 |
+| `/group` | 分组列表 & 节点分布 |
+| `/history <uuid>` | 节点负载历史图表 |
+| `/node <uuid>` | 节点详细信息 |
+| `/help` | 帮助信息 |
+
+点击节点名称可查看详细信息，支持内联键盘操作。
 
 ### 企业微信命令
 
-- `状态` 或 `/status` - 服务器状态概览
-- `列表` 或 `/list` - 所有节点列表
-- `帮助` 或 `/help` - 帮助信息
+- `状态` / `/status` - 服务器状态概览
+- `列表` / `/list` - 所有节点列表
+- `离线` / `/offline` - 离线节点
+- `排名` / `/rank` - 性能排行
+- `分组` / `/group` - 分组信息
 - 直接输入节点名称 - 查看节点详情
+
+## Komari 通知转发
+
+`komari-notify.js` 可粘贴到 Komari 后台「设置 → 通知」中，将离线/上线/告警等事件转发到 Telegram + 企业微信。
+
+使用前修改脚本顶部 4 个配置项：
+- `WECOM_KOMARI_URL` — wecom-komari 服务地址
+- `SENDKEY` — 认证密钥
+- `TG_CHAT_ID` — Telegram Chat ID
+- `WECOM_USER` — 企业微信接收人
+
+支持事件：🔴 离线 / 🟢 上线 / ⚠️ 告警 / ⏰ 续费 / 🚨 到期 / 🧪 测试
 
 ## API 接口
 
-### 消息推送
+### 企业微信推送
 
 ```bash
 curl -X POST http://localhost:8080/wecomchan \
@@ -94,9 +113,6 @@ curl http://localhost:8080/healthz
 ## 开发
 
 ```bash
-# 安装依赖
-go mod tidy
-
 # 本地运行
 export KOMARI_URL=https://your-komari.example.com
 export KOMARI_API_KEY=your_api_key
@@ -115,13 +131,12 @@ go build -o wecom-komari .
 | 数据结构 | 扁平化 | 嵌套(实时)/扁平(历史) |
 | 节点标识 | ID | UUID |
 | API 路径 | `/api/v1/` | `/api/` |
+| 通知管理 | REST API | JS 脚本（后台配置） |
 
 ## 致谢
 
 - [wecom-nezha](https://github.com/gowfqk/wecom-nezha) - 原始项目架构
 - [Komari](https://github.com/komari-monitor/komari) - 监控面板
-- [企业微信](https://work.weixin.qq.com/) - 企业通讯平台
-- [Telegram](https://telegram.org/) - 即时通讯平台
 
 ## 许可证
 
