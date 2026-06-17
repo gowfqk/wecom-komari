@@ -17,6 +17,11 @@ func setTelegramBotCommands() error {
 	cmds := []map[string]string{
 		{"command": "status", "description": "服务器状态概览"},
 		{"command": "list", "description": "所有节点列表"},
+		{"command": "offline", "description": "离线节点"},
+		{"command": "ping", "description": "Ping任务信息"},
+		{"command": "rank", "description": "资源使用排名"},
+		{"command": "info", "description": "站点信息"},
+		{"command": "group", "description": "节点分组"},
 		{"command": "help", "description": "帮助信息"},
 	}
 	_, err := httpDo("POST", TelegramAPIBase+"/bot"+TelegramBotToken+"/setMyCommands", map[string]interface{}{"commands": cmds}, nil)
@@ -72,26 +77,83 @@ func handleTgCmd(chatID int64, cmd string) {
 	cmd = strings.Fields(strings.ToLower(cmd))[0]
 	switch cmd {
 	case "start", "help":
-		tgSendKB(chatID, "*Komari 监控 Bot*\n\n/status - 状态\n/list - 节点列表\n/help - 帮助\n\n直接输入节点名称查看详情", [][]InlineButton{{{Text: "📊 状态", CallbackData: "cmd:status"}, {Text: "📋 列表", CallbackData: "cmd:list"}}})
+		tgSendKB(chatID, "*Komari 监控 Bot*\n\n"+
+			"/status - 状态概览\n"+
+			"/list - 节点列表\n"+
+			"/offline - 离线节点\n"+
+			"/ping - Ping任务\n"+
+			"/rank - 资源排名\n"+
+			"/info - 站点信息\n"+
+			"/group - 节点分组\n"+
+			"/help - 帮助\n\n"+
+			"直接输入节点名称查看详情",
+			[][]InlineButton{
+				{{Text: "📊 状态", CallbackData: "cmd:status"}, {Text: "📋 列表", CallbackData: "cmd:list"}},
+				{{Text: "🔴 离线", CallbackData: "cmd:offline"}, {Text: "📡 Ping", CallbackData: "cmd:ping"}},
+				{{Text: "🏆 排名", CallbackData: "cmd:rank"}, {Text: "ℹ️ 信息", CallbackData: "cmd:info"}},
+			})
 	case "status":
-		nodes, err := getNodeList()
-		if err != nil {
-			tgSend(chatID, "❌ "+err.Error())
-			return
-		}
-		total := len(nodes)
-		hidden := 0
-		for _, n := range nodes {
-			if n.Hidden {
-				hidden++
-			}
-		}
-		tgSendKB(chatID, fmt.Sprintf("📊 节点总数: %d\n👁 可见: %d | 🙈 隐藏: %d", total, total-hidden, hidden), [][]InlineButton{{{Text: "🔄 刷新", CallbackData: "cmd:status"}, {Text: "📋 列表", CallbackData: "cmd:list"}}})
+		handleTgStatus(chatID)
 	case "list":
 		handleTgList(chatID)
+	case "offline":
+		handleTgOffline(chatID)
+	case "ping":
+		handleTgPing(chatID)
+	case "rank":
+		handleTgRank(chatID)
+	case "info":
+		handleTgInfo(chatID)
+	case "group":
+		handleTgGroup(chatID)
 	default:
 		tgSend(chatID, "未知命令: /"+cmd)
 	}
+}
+
+func handleTgStatus(chatID int64) {
+	nodes, err := getNodeList()
+	if err != nil {
+		tgSend(chatID, "❌ "+err.Error())
+		return
+	}
+	total := len(nodes)
+	online := 0
+	offline := 0
+	var totalCPU float64
+	var totalMemUsed, totalMemTotal uint64
+	for _, n := range nodes {
+		if n.Hidden {
+			continue
+		}
+		rt, err := getNodeRealtime(n.UUID)
+		if err == nil && rt != nil {
+			online++
+			totalCPU += rt.CPU.Usage
+			totalMemUsed += rt.RAM.Used
+			totalMemTotal += n.MemTotal
+		} else {
+			offline++
+		}
+	}
+	var avgCPU, avgMem float64
+	if online > 0 {
+		avgCPU = totalCPU / float64(online)
+		if totalMemTotal > 0 {
+			avgMem = float64(totalMemUsed) / float64(totalMemTotal) * 100
+		}
+	}
+	txt := fmt.Sprintf("📊 *节点状态概览*\n\n"+
+		"📋 总数: %d\n"+
+		"🟢 在线: %d\n"+
+		"🔴 离线: %d\n\n"+
+		"🔲 平均CPU: %.1f%%\n"+
+		"💾 平均内存: %.1f%%",
+		total, online, offline, avgCPU, avgMem)
+	tgSendKB(chatID, txt, [][]InlineButton{
+		{{Text: "🔄 刷新", CallbackData: "cmd:status"}, {Text: "📋 列表", CallbackData: "cmd:list"}},
+		{{Text: "🔴 离线", CallbackData: "cmd:offline"}, {Text: "🏆 排名", CallbackData: "cmd:rank"}},
+	})
 }
 
 func handleTgList(chatID int64) {
@@ -111,6 +173,92 @@ func handleTgList(chatID int64) {
 	}
 	btns = append(btns, []InlineButton{{Text: "🔄 刷新", CallbackData: "cmd:list"}})
 	tgSendKB(chatID, fmtNodeList(nodes), btns)
+}
+
+func handleTgOffline(chatID int64) {
+	offline, err := getOfflineNodes()
+	if err != nil {
+		tgSend(chatID, "❌ "+err.Error())
+		return
+	}
+	txt := fmtOfflineNodes()
+	var btns [][]InlineButton
+	for _, n := range offline {
+		btns = append(btns, []InlineButton{{Text: n.Name, CallbackData: "node:" + n.UUID}})
+		if len(btns) >= 20 {
+			break
+		}
+	}
+	btns = append(btns, []InlineButton{{Text: "🔄 刷新", CallbackData: "cmd:offline"}})
+	tgSendKB(chatID, txt, btns)
+}
+
+func handleTgPing(chatID int64) {
+	txt := fmtPingInfo()
+	tgSendKB(chatID, txt, [][]InlineButton{{{Text: "🔄 刷新", CallbackData: "cmd:ping"}}})
+}
+
+func handleTgRank(chatID int64) {
+	nodes, err := getNodeList()
+	if err != nil {
+		tgSend(chatID, "❌ "+err.Error())
+		return
+	}
+	txt := fmtCPUUsageRank(nodes)
+	tgSendKB(chatID, txt, [][]InlineButton{
+		{{Text: "🔲 CPU", CallbackData: "rank:cpu"}, {Text: "💾 内存", CallbackData: "rank:mem"}, {Text: "🌐 网络", CallbackData: "rank:net"}},
+		{{Text: "🔄 刷新", CallbackData: "cmd:rank"}},
+	})
+}
+
+func handleTgInfo(chatID int64) {
+	txt := fmtSiteInfo()
+	tgSendKB(chatID, txt, [][]InlineButton{{{Text: "🔄 刷新", CallbackData: "cmd:info"}}})
+}
+
+func handleTgGroup(chatID int64) {
+	groups := getNodeGroups()
+	if len(groups) == 0 {
+		tgSend(chatID, "暂无分组")
+		return
+	}
+	txt := fmtGroupList()
+	var btns [][]InlineButton
+	for _, g := range groups {
+		btns = append(btns, []InlineButton{{Text: g, CallbackData: "group:" + g}})
+	}
+	btns = append(btns, []InlineButton{{Text: "🔄 刷新", CallbackData: "cmd:group"}})
+	tgSendKB(chatID, txt, btns)
+}
+
+func handleTgGroupNodes(chatID int64, groupName string) {
+	nodes := getNodesByGroup(groupName)
+	if len(nodes) == 0 {
+		tgSend(chatID, fmt.Sprintf("📂 分组 '%s' 暂无节点", groupName))
+		return
+	}
+	txt := fmt.Sprintf("📂 *%s* (%d个节点)\n\n", groupName, len(nodes))
+	for i, n := range nodes {
+		rt, _ := getNodeRealtime(n.UUID)
+		emoji := "🔴"
+		if rt != nil {
+			emoji = "🟢"
+		}
+		txt += fmt.Sprintf("%d. %s %s", i+1, emoji, n.Name)
+		if n.Region != "" {
+			txt += " " + n.Region
+		}
+		txt += "\n"
+	}
+	var btns [][]InlineButton
+	for _, n := range nodes {
+		btns = append(btns, []InlineButton{{Text: n.Name, CallbackData: "node:" + n.UUID}})
+		if len(btns) >= 20 {
+			break
+		}
+	}
+	btns = append(btns, []InlineButton{{Text: "⬅️ 返回分组", CallbackData: "cmd:group"}})
+	tgSendKB(chatID, txt, btns)
 }
 
 func handleTgNode(chatID int64, uuid string) {
@@ -144,7 +292,34 @@ func handleTgCallback(cb *TgCallback) {
 		handleTgNode(uid, param)
 	case "history":
 		handleTgHistory(uid, param)
+	case "rank":
+		handleTgRankSwitch(uid, param)
+	case "group":
+		handleTgGroupNodes(uid, param)
 	}
+}
+
+func handleTgRankSwitch(chatID int64, typ string) {
+	nodes, err := getNodeList()
+	if err != nil {
+		tgSend(chatID, "❌ "+err.Error())
+		return
+	}
+	var txt string
+	switch typ {
+	case "cpu":
+		txt = fmtCPUUsageRank(nodes)
+	case "mem":
+		txt = fmtMemUsageRank(nodes)
+	case "net":
+		txt = fmtNetUsageRank(nodes)
+	default:
+		txt = fmtCPUUsageRank(nodes)
+	}
+	tgSendKB(chatID, txt, [][]InlineButton{
+		{{Text: "🔲 CPU", CallbackData: "rank:cpu"}, {Text: "💾 内存", CallbackData: "rank:mem"}, {Text: "🌐 网络", CallbackData: "rank:net"}},
+		{{Text: "🔄 刷新", CallbackData: "rank:" + typ}},
+	})
 }
 
 func handleTgHistory(chatID int64, uuid string) {
@@ -326,26 +501,74 @@ func processWecomMsg(content string) string {
 	content = strings.TrimSpace(content)
 	switch {
 	case content == "帮助" || content == "/help" || content == "help":
-		return "可用命令:\n/status - 状态\n/list - 列表\n/help - 帮助\n直接输入节点名称查看详情"
+		return "可用命令:\n" +
+			"/status - 状态\n" +
+			"/list - 列表\n" +
+			"/offline - 离线节点\n" +
+			"/ping - Ping任务\n" +
+			"/rank - 排名\n" +
+			"/info - 站点信息\n" +
+			"/group - 分组\n" +
+			"/help - 帮助\n" +
+			"直接输入节点名称查看详情"
 	case content == "状态" || content == "/status" || content == "status":
 		nodes, err := getNodeList()
 		if err != nil {
 			return "❌ " + err.Error()
 		}
 		total := len(nodes)
-		hidden := 0
+		online := 0
+		offline := 0
+		var totalCPU float64
+		var totalMemUsed, totalMemTotal uint64
 		for _, n := range nodes {
 			if n.Hidden {
-				hidden++
+				continue
+			}
+			rt, err := getNodeRealtime(n.UUID)
+			if err == nil && rt != nil {
+				online++
+				totalCPU += rt.CPU.Usage
+				totalMemUsed += rt.RAM.Used
+				totalMemTotal += n.MemTotal
+			} else {
+				offline++
 			}
 		}
-		return fmt.Sprintf("📊 节点总数: %d\n👁 可见: %d | 🙈 隐藏: %d", total, total-hidden, hidden)
+		var avgCPU, avgMem float64
+		if online > 0 {
+			avgCPU = totalCPU / float64(online)
+			if totalMemTotal > 0 {
+				avgMem = float64(totalMemUsed) / float64(totalMemTotal) * 100
+			}
+		}
+		return fmt.Sprintf("📊 节点状态概览\n\n"+
+			"📋 总数: %d\n"+
+			"🟢 在线: %d\n"+
+			"🔴 离线: %d\n\n"+
+			"🔲 平均CPU: %.1f%%\n"+
+			"💾 平均内存: %.1f%%",
+			total, online, offline, avgCPU, avgMem)
 	case content == "列表" || content == "/list" || content == "list":
 		nodes, err := getNodeList()
 		if err != nil {
 			return "❌ " + err.Error()
 		}
-		return fmtNodeList(nodes)
+		return fmtNodeListWithStatus(nodes)
+	case content == "离线" || content == "/offline" || content == "offline":
+		return fmtOfflineNodes()
+	case content == "ping" || content == "/ping" || content == "Ping":
+		return fmtPingInfo()
+	case content == "排名" || content == "/rank" || content == "rank":
+		nodes, err := getNodeList()
+		if err != nil {
+			return "❌ " + err.Error()
+		}
+		return fmtCPUUsageRank(nodes) + "\n\n" + fmtMemUsageRank(nodes)
+	case content == "信息" || content == "/info" || content == "info":
+		return fmtSiteInfo()
+	case content == "分组" || content == "/group" || content == "group":
+		return fmtGroupList()
 	default:
 		ns := searchNodes(content)
 		switch len(ns) {

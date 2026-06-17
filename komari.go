@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -156,7 +157,7 @@ func getNodeByUUID(uuid string) (*KomariNode, error) {
 	}
 	q := strings.ToLower(uuid)
 	for _, n := range nodes {
-				if strings.ToLower(n.UUID) == q || strings.Contains(strings.ToLower(n.Name), q) {
+		if strings.ToLower(n.UUID) == q || strings.Contains(strings.ToLower(n.Name), q) {
 			return &n, nil
 		}
 	}
@@ -200,7 +201,152 @@ func getNodeLoadHistory(uuid string, hours int) ([]KomariLoadRecord, error) {
 	return r.Data.Records, nil
 }
 
+// New API functions
+
+func getKomariPublicInfo() (*KomariPublicInfo, error) {
+	b, err := komariReq("GET", "/api/public")
+	if err != nil {
+		return nil, err
+	}
+	var r KomariAPIResponse
+	if err := json.Unmarshal(b, &r); err != nil {
+		return nil, err
+	}
+	var info KomariPublicInfo
+	if err := json.Unmarshal(r.Data, &info); err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
+
+func getKomariVersion() (*KomariVersion, error) {
+	b, err := komariReq("GET", "/api/version")
+	if err != nil {
+		return nil, err
+	}
+	var r KomariAPIResponse
+	if err := json.Unmarshal(b, &r); err != nil {
+		return nil, err
+	}
+	var v KomariVersion
+	if err := json.Unmarshal(r.Data, &v); err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+func getKomariMe() (*KomariMe, error) {
+	b, err := komariReq("GET", "/api/me")
+	if err != nil {
+		return nil, err
+	}
+	var r KomariAPIResponse
+	if err := json.Unmarshal(b, &r); err != nil {
+		return nil, err
+	}
+	var m KomariMe
+	if err := json.Unmarshal(r.Data, &m); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+func getPingTasks() ([]KomariPingTask, error) {
+	b, err := komariReq("GET", "/api/task/ping")
+	if err != nil {
+		return nil, err
+	}
+	var r KomariAPIResponse
+	if err := json.Unmarshal(b, &r); err != nil {
+		return nil, err
+	}
+	var tasks []KomariPingTask
+	if err := json.Unmarshal(r.Data, &tasks); err != nil {
+		return nil, err
+	}
+	return tasks, nil
+}
+
+func getPingRecords() ([]KomariPingRecord, error) {
+	b, err := komariReq("GET", "/api/records/ping")
+	if err != nil {
+		return nil, err
+	}
+	var r KomariAPIResponse
+	if err := json.Unmarshal(b, &r); err != nil {
+		return nil, err
+	}
+	var records []KomariPingRecord
+	if err := json.Unmarshal(r.Data, &records); err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
+func getOnlineNodes() ([]KomariNode, error) {
+	nodes, err := getNodeList()
+	if err != nil {
+		return nil, err
+	}
+	var online []KomariNode
+	for _, n := range nodes {
+		rt, err := getNodeRealtime(n.UUID)
+		if err == nil && rt != nil {
+			online = append(online, n)
+		}
+	}
+	return online, nil
+}
+
+func getOfflineNodes() ([]KomariNode, error) {
+	nodes, err := getNodeList()
+	if err != nil {
+		return nil, err
+	}
+	var offline []KomariNode
+	for _, n := range nodes {
+		_, err := getNodeRealtime(n.UUID)
+		if err != nil {
+			offline = append(offline, n)
+		}
+	}
+	return offline, nil
+}
+
+func getNodesByGroup(groupName string) []KomariNode {
+	nodes, err := getNodeList()
+	if err != nil {
+		return nil
+	}
+	var result []KomariNode
+	g := strings.ToLower(groupName)
+	for _, n := range nodes {
+		if strings.ToLower(n.Group) == g {
+			result = append(result, n)
+		}
+	}
+	return result
+}
+
+func getNodeGroups() []string {
+	nodes, err := getNodeList()
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var groups []string
+	for _, n := range nodes {
+		if n.Group != "" && !seen[n.Group] {
+			seen[n.Group] = true
+			groups = append(groups, n.Group)
+		}
+	}
+	sort.Strings(groups)
+	return groups
+}
+
 // Formatting
+
 func fmtBytes(b uint64) string {
 	const KB = 1024
 	const MB = KB * 1024
@@ -313,6 +459,224 @@ func fmtNodeList(nodes []KomariNode) string {
 		s.WriteString("\n")
 	}
 	return s.String()
+}
+
+func fmtNodeListWithStatus(nodes []KomariNode) string {
+	if len(nodes) == 0 {
+		return "暂无节点"
+	}
+	var s strings.Builder
+	s.WriteString(fmt.Sprintf("共 %d 个节点:\n\n", len(nodes)))
+	for i, n := range nodes {
+		rt, _ := getNodeRealtime(n.UUID)
+		emoji := "🔴"
+		if rt != nil {
+			emoji = "🟢"
+		}
+		if n.Hidden {
+			emoji = "🙈"
+		}
+		s.WriteString(fmt.Sprintf("%d. %s %s", i+1, emoji, n.Name))
+		if n.Region != "" {
+			s.WriteString(" " + n.Region)
+		}
+		if n.Group != "" {
+			s.WriteString(" [" + n.Group + "]")
+		}
+		s.WriteString("\n")
+	}
+	return s.String()
+}
+
+func fmtCPUUsageRank(nodes []KomariNode) string {
+	type nodeCPU struct {
+		Name string
+		CPU  float64
+	}
+	var items []nodeCPU
+	for _, n := range nodes {
+		rt, err := getNodeRealtime(n.UUID)
+		if err == nil && rt != nil {
+			items = append(items, nodeCPU{Name: n.Name, CPU: rt.CPU.Usage})
+		}
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].CPU > items[j].CPU })
+	limit := 10
+	if len(items) < limit {
+		limit = len(items)
+	}
+	var s strings.Builder
+	s.WriteString("🔲 *CPU 使用率排名 Top 10*\n\n")
+	for i := 0; i < limit; i++ {
+		s.WriteString(fmt.Sprintf("%d. %s - %.1f%%\n", i+1, items[i].Name, items[i].CPU))
+	}
+	if len(items) == 0 {
+		s.WriteString("暂无在线节点")
+	}
+	return s.String()
+}
+
+func fmtMemUsageRank(nodes []KomariNode) string {
+	type nodeMem struct {
+		Name    string
+		Used    uint64
+		Total   uint64
+		Percent float64
+	}
+	var items []nodeMem
+	for _, n := range nodes {
+		rt, err := getNodeRealtime(n.UUID)
+		if err == nil && rt != nil && n.MemTotal > 0 {
+			pct := float64(rt.RAM.Used) / float64(n.MemTotal) * 100
+			items = append(items, nodeMem{Name: n.Name, Used: rt.RAM.Used, Total: n.MemTotal, Percent: pct})
+		}
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Percent > items[j].Percent })
+	limit := 10
+	if len(items) < limit {
+		limit = len(items)
+	}
+	var s strings.Builder
+	s.WriteString("💾 *内存使用率排名 Top 10*\n\n")
+	for i := 0; i < limit; i++ {
+		s.WriteString(fmt.Sprintf("%d. %s - %s/%s (%.1f%%)\n", i+1, items[i].Name, fmtBytes(items[i].Used), fmtBytes(items[i].Total), items[i].Percent))
+	}
+	if len(items) == 0 {
+		s.WriteString("暂无在线节点")
+	}
+	return s.String()
+}
+
+func fmtNetUsageRank(nodes []KomariNode) string {
+	type nodeNet struct {
+		Name     string
+		TotalUp  uint64
+		TotalDown uint64
+		Total    uint64
+	}
+	var items []nodeNet
+	for _, n := range nodes {
+		rt, err := getNodeRealtime(n.UUID)
+		if err == nil && rt != nil {
+			total := rt.Network.TotalUp + rt.Network.TotalDown
+			items = append(items, nodeNet{Name: n.Name, TotalUp: rt.Network.TotalUp, TotalDown: rt.Network.TotalDown, Total: total})
+		}
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Total > items[j].Total })
+	limit := 10
+	if len(items) < limit {
+		limit = len(items)
+	}
+	var s strings.Builder
+	s.WriteString("🌐 *网络流量排名 Top 10*\n\n")
+	for i := 0; i < limit; i++ {
+		s.WriteString(fmt.Sprintf("%d. %s - ↑%s ↓%s\n", i+1, items[i].Name, fmtBytes(items[i].TotalUp), fmtBytes(items[i].TotalDown)))
+	}
+	if len(items) == 0 {
+		s.WriteString("暂无在线节点")
+	}
+	return s.String()
+}
+
+func fmtSiteInfo() string {
+	info, err := getKomariPublicInfo()
+	if err != nil {
+		return "❌ 获取站点信息失败: " + err.Error()
+	}
+	ver, _ := getKomariVersion()
+	var s strings.Builder
+	s.WriteString("ℹ️ *站点信息*\n\n")
+	s.WriteString(fmt.Sprintf("📛 名称: %s\n", info.Sitename))
+	if info.Description != "" {
+		s.WriteString(fmt.Sprintf("📝 描述: %s\n", info.Description))
+	}
+	if info.Theme != "" {
+		s.WriteString(fmt.Sprintf("🎨 主题: %s\n", info.Theme))
+	}
+	s.WriteString(fmt.Sprintf("📊 记录: %s\n", boolStr(info.RecordEnabled)))
+	if info.RecordEnabled && info.RecordPreserveTime > 0 {
+		s.WriteString(fmt.Sprintf("⏰ 保留时间: %d天\n", info.RecordPreserveTime/(3600*24)))
+	}
+	s.WriteString(fmt.Sprintf("🔒 私有站点: %s\n", boolStr(info.PrivateSite)))
+	if ver != nil {
+		s.WriteString(fmt.Sprintf("\n🚀 版本: %s", ver.Version))
+		if ver.Hash != "" {
+			s.WriteString(fmt.Sprintf(" (%s)", ver.Hash[:7]))
+		}
+	}
+	return s.String()
+}
+
+func fmtPingInfo() string {
+	tasks, err := getPingTasks()
+	if err != nil {
+		return "❌ 获取Ping任务失败: " + err.Error()
+	}
+	if len(tasks) == 0 {
+		return "📋 暂无Ping任务"
+	}
+	var s strings.Builder
+	s.WriteString("📡 *Ping 任务列表*\n\n")
+	for _, t := range tasks {
+		status := "✅"
+		if !t.DefaultOn {
+			status = "⏸"
+		}
+		s.WriteString(fmt.Sprintf("%s %s (ID: %d)\n", status, t.Name, t.ID))
+		s.WriteString(fmt.Sprintf("   类型: %s | 间隔: %ds\n", t.Type, t.Interval))
+		if len(t.Clients) > 0 {
+			s.WriteString(fmt.Sprintf("   客户端: %d个\n", len(t.Clients)))
+		}
+	}
+	records, err := getPingRecords()
+	if err == nil && len(records) > 0 {
+		s.WriteString(fmt.Sprintf("\n📊 最近记录: %d条\n", len(records)))
+	}
+	return s.String()
+}
+
+func fmtOfflineNodes() string {
+	offline, err := getOfflineNodes()
+	if err != nil {
+		return "❌ 获取离线节点失败: " + err.Error()
+	}
+	if len(offline) == 0 {
+		return "✅ 所有节点在线"
+	}
+	var s strings.Builder
+	s.WriteString(fmt.Sprintf("🔴 *离线节点 (%d个)*\n\n", len(offline)))
+	for i, n := range offline {
+		s.WriteString(fmt.Sprintf("%d. %s", i+1, n.Name))
+		if n.Region != "" {
+			s.WriteString(" " + n.Region)
+		}
+		if n.Group != "" {
+			s.WriteString(" [" + n.Group + "]")
+		}
+		s.WriteString("\n")
+	}
+	return s.String()
+}
+
+func fmtGroupList() string {
+	groups := getNodeGroups()
+	if len(groups) == 0 {
+		return "暂无分组"
+	}
+	var s strings.Builder
+	s.WriteString(fmt.Sprintf("📂 *节点分组 (%d个)*\n\n", len(groups)))
+	for _, g := range groups {
+		nodes := getNodesByGroup(g)
+		s.WriteString(fmt.Sprintf("• %s (%d个节点)\n", g, len(nodes)))
+	}
+	return s.String()
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "是"
+	}
+	return "否"
 }
 
 func searchNodes(q string) []KomariNode {

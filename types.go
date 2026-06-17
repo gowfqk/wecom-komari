@@ -89,15 +89,15 @@ type KomariRealtimeData struct {
 }
 
 type KomariLoadRecord struct {
-	Client string  `json:"client"`
-	Time   string  `json:"time"`
-	CPU    float64 `json:"cpu"`
-	RAM    uint64  `json:"ram"`
-	Disk   uint64  `json:"disk"`
-	Load   float64 `json:"load"`
-	NetIn  float64 `json:"net_in"`
-	NetOut float64 `json:"net_out"`
-	Process int    `json:"process"`
+	Client  string  `json:"client"`
+	Time    string  `json:"time"`
+	CPU     float64 `json:"cpu"`
+	RAM     uint64  `json:"ram"`
+	Disk    uint64  `json:"disk"`
+	Load    float64 `json:"load"`
+	NetIn   float64 `json:"net_in"`
+	NetOut  float64 `json:"net_out"`
+	Process int     `json:"process"`
 }
 
 type KomariPingTask struct {
@@ -107,6 +107,38 @@ type KomariPingTask struct {
 	DefaultOn bool     `json:"default_on"`
 	Type      string   `json:"type"`
 	Interval  int      `json:"interval"`
+}
+
+type KomariPingRecord struct {
+	TaskID int     `json:"task_id"`
+	Time   string  `json:"time"`
+	Value  float64 `json:"value"`
+	Client string  `json:"client"`
+}
+
+type KomariPublicInfo struct {
+	Sitename            string `json:"sitename"`
+	Description         string `json:"description"`
+	Theme               string `json:"theme"`
+	RecordEnabled       bool   `json:"record_enabled"`
+	RecordPreserveTime  int    `json:"record_preserve_time"`
+	PrivateSite         bool   `json:"private_site"`
+	AllowGuestViewNode  bool   `json:"allow_guest_view_node"`
+	AllowGuestViewStats bool   `json:"allow_guest_view_stats"`
+}
+
+type KomariVersion struct {
+	Version string `json:"version"`
+	Hash    string `json:"hash"`
+}
+
+type KomariMe struct {
+	LoggedIn   bool   `json:"logged_in"`
+	Username   string `json:"username"`
+	UUID       string `json:"uuid"`
+	TwoFA      bool   `json:"2fa_enabled"`
+	SSOID      string `json:"sso_id"`
+	SSOType    string `json:"sso_type"`
 }
 
 type InlineKeyboard struct {
