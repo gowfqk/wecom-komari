@@ -1831,16 +1831,11 @@ func handleTgAdminClearAllRecords(chatID int64) {
 func handleTgAdminClientAddForm(chatID int64) {
 	setUserState(chatID, "add_client")
 	tgSendKB(chatID, "➕ *添加客户端*\n\n"+
-		"请按以下格式发送参数 (每行一个):\n\n"+
-		"```\n"+
-		"名称=节点名称\n"+
-		"区域=区域\n"+
-		"分组=分组\n"+
-		"权重=0\n"+
-		"隐藏=false\n"+
-		"```\n\n"+
-		"必填参数: 名称\n"+
-		"可选参数: 区域, 分组, 标签, 权重, 隐藏, 价格, 货币, 计费周期, 备注, 流量限制, 流量限制类型",
+		"📝 *请按以下格式发送参数:*\n"+
+		"```\n名称=节点名称\n区域=🇨🇳\n分组=国内\n权重=0\n隐藏=false\n```\n\n"+
+		"✅ *必填:* 名称\n"+
+		"💡 *可选:* 区域, 分组, 标签, 权重, 隐藏, 价格, 货币, 计费周期, 备注, 流量限制, 流量限制类型\n\n"+
+		"⚠️ 只需填写要设置的参数，其他使用默认值",
 		[][]InlineButton{{{Text: "❌ 取消", CallbackData: "adm_cl"}}})
 }
 
@@ -1891,11 +1886,17 @@ func handleTgAdminClientEditForm(chatID int64, uuid string) {
 		return
 	}
 	tgSendKB(chatID, fmt.Sprintf("✏️ *编辑客户端: %s*\n\n"+
-		"当前信息:\n"+
-		"名称=%s\n区域=%s\n分组=%s\n权重=%d\n隐藏=%v\n"+
-		"标签=%s\n备注=%s\n\n"+
-		"请发送要修改的参数 (每行一个):\n"+
-		"可修改: 名称, 区域, 分组, 标签, 权重, 隐藏, 价格, 货币, 计费周期, 备注, 流量限制, 流量限制类型",
+		"📋 当前信息:\n"+
+		"  名称: %s\n  区域: %s\n  分组: %s\n  权重: %d\n  隐藏: %v\n"+
+		"  标签: %s\n  备注: %s\n\n"+
+		"📝 *请按以下格式发送修改内容:*\n"+
+		"```\n名称=新名称\n区域=🇨🇳\n权重=10\n```\n\n"+
+		"💡 *可修改参数:*\n"+
+		"  名称 | 区域 | 分组 | 标签\n"+
+		"  权重 | 隐藏 | 价格 | 货币\n"+
+		"  计费周期 | 备注\n"+
+		"  流量限制 | 流量限制类型\n\n"+
+		"⚠️ 只需填写要修改的参数，其他保持不变",
 		client.Name, client.Name, client.Region, client.Group, client.Weight, client.Hidden,
 		client.Tags, client.PublicRemark),
 		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_cd:" + uuid}}})
