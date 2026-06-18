@@ -736,3 +736,524 @@ func getWecomAccessToken() (string, error) {
 	wecomTokenMu.Unlock()
 	return wecomToken, nil
 }
+
+// Admin API helper - POST with body
+func komariReqBody(method, path string, body interface{}) ([]byte, error) {
+	headers := map[string]string{}
+	if KomariApiKey != "" {
+		headers["Authorization"] = "Bearer " + KomariApiKey
+	} else {
+		t, err := getKomariToken()
+		if err != nil {
+			return nil, err
+		}
+		headers["Cookie"] = "session_token=" + t
+	}
+	return httpDo(method, KomariUrl+path, body, headers)
+}
+
+// Admin API: parse standard Komari response and return raw data
+func komariAdminGetData(method, path string, body interface{}) (json.RawMessage, error) {
+	var b []byte
+	var err error
+	if body != nil {
+		b, err = komariReqBody(method, path, body)
+	} else {
+		b, err = komariReq(method, path)
+	}
+	if err != nil {
+		return nil, err
+	}
+	var r KomariAPIResponse
+	if err := json.Unmarshal(b, &r); err != nil {
+		return nil, err
+	}
+	if r.Status != "success" {
+		return nil, fmt.Errorf("%s", r.Message)
+	}
+	return r.Data, nil
+}
+
+// Admin API: parse standard Komari response for action (no data)
+func komariAdminAction(method, path string, body interface{}) error {
+	var b []byte
+	var err error
+	if body != nil {
+		b, err = komariReqBody(method, path, body)
+	} else {
+		b, err = komariReq(method, path)
+	}
+	if err != nil {
+		return err
+	}
+	var r KomariAPIResponse
+	if err := json.Unmarshal(b, &r); err != nil {
+		return err
+	}
+	if r.Status != "success" {
+		return fmt.Errorf("%s", r.Message)
+	}
+	return nil
+}
+
+// Client management
+func adminListClients() ([]KomariNode, error) {
+	data, err := komariAdminGetData("GET", "/api/admin/client/list", nil)
+	if err != nil {
+		return nil, err
+	}
+	var clients []KomariNode
+	if err := json.Unmarshal(data, &clients); err != nil {
+		return nil, err
+	}
+	return clients, nil
+}
+
+func adminGetClient(uuid string) (*KomariNode, error) {
+	data, err := komariAdminGetData("GET", "/api/admin/client/"+uuid, nil)
+	if err != nil {
+		return nil, err
+	}
+	var client KomariNode
+	if err := json.Unmarshal(data, &client); err != nil {
+		return nil, err
+	}
+	return &client, nil
+}
+
+func adminAddClient(params map[string]interface{}) error {
+	return komariAdminAction("POST", "/api/admin/client/add", params)
+}
+
+func adminEditClient(uuid string, params map[string]interface{}) error {
+	return komariAdminAction("POST", "/api/admin/client/"+uuid+"/edit", params)
+}
+
+func adminRemoveClient(uuid string) error {
+	return komariAdminAction("POST", "/api/admin/client/"+uuid+"/remove", nil)
+}
+
+func adminGetClientToken(uuid string) (string, error) {
+	data, err := komariAdminGetData("GET", "/api/admin/client/"+uuid+"/token", nil)
+	if err != nil {
+		return "", err
+	}
+	var tokenData struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(data, &tokenData); err != nil {
+		// Try parsing as plain string
+		var s string
+		if err2 := json.Unmarshal(data, &s); err2 == nil {
+			return s, nil
+		}
+		return string(data), nil
+	}
+	return tokenData.Token, nil
+}
+
+// Notification management - offline
+func adminListOfflineNotifications() (json.RawMessage, error) {
+	return komariAdminGetData("GET", "/api/admin/notification/offline", nil)
+}
+
+func adminEditOfflineNotification(params map[string]interface{}) error {
+	return komariAdminAction("POST", "/api/admin/notification/offline/edit", params)
+}
+
+func adminEnableOfflineNotification() error {
+	return komariAdminAction("POST", "/api/admin/notification/offline/enable", nil)
+}
+
+func adminDisableOfflineNotification() error {
+	return komariAdminAction("POST", "/api/admin/notification/offline/disable", nil)
+}
+
+// Notification management - load alerts
+func adminListLoadAlerts() (json.RawMessage, error) {
+	return komariAdminGetData("GET", "/api/admin/notification/load/", nil)
+}
+
+func adminAddLoadAlert(params map[string]interface{}) error {
+	return komariAdminAction("POST", "/api/admin/notification/load/add", params)
+}
+
+func adminDeleteLoadAlert(params map[string]interface{}) error {
+	return komariAdminAction("POST", "/api/admin/notification/load/delete", params)
+}
+
+func adminEditLoadAlert(params map[string]interface{}) error {
+	return komariAdminAction("POST", "/api/admin/notification/load/edit", params)
+}
+
+// Notification management - traffic reports
+func adminListTrafficReports() (json.RawMessage, error) {
+	return komariAdminGetData("GET", "/api/admin/notification/traffic-report/", nil)
+}
+
+func adminEditTrafficReport(params map[string]interface{}) error {
+	return komariAdminAction("POST", "/api/admin/notification/traffic-report/edit", params)
+}
+
+func adminEnableTrafficReport() error {
+	return komariAdminAction("POST", "/api/admin/notification/traffic-report/enable", nil)
+}
+
+func adminDisableTrafficReport() error {
+	return komariAdminAction("POST", "/api/admin/notification/traffic-report/disable", nil)
+}
+
+// Ping task management (admin)
+func adminListPingTasks() ([]KomariPingTask, error) {
+	data, err := komariAdminGetData("GET", "/api/admin/ping/", nil)
+	if err != nil {
+		return nil, err
+	}
+	var tasks []KomariPingTask
+	if err := json.Unmarshal(data, &tasks); err != nil {
+		return nil, err
+	}
+	return tasks, nil
+}
+
+func adminAddPingTask(params map[string]interface{}) error {
+	return komariAdminAction("POST", "/api/admin/ping/add", params)
+}
+
+func adminDeletePingTask(id int) error {
+	return komariAdminAction("POST", "/api/admin/ping/delete", map[string]interface{}{"id": id})
+}
+
+func adminEditPingTask(id int, params map[string]interface{}) error {
+	params["id"] = id
+	return komariAdminAction("POST", "/api/admin/ping/edit", params)
+}
+
+// Settings management
+func adminGetSettings() (map[string]interface{}, error) {
+	data, err := komariAdminGetData("GET", "/api/admin/settings/", nil)
+	if err != nil {
+		return nil, err
+	}
+	var settings map[string]interface{}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return nil, err
+	}
+	return settings, nil
+}
+
+func adminEditSettings(params map[string]interface{}) error {
+	return komariAdminAction("POST", "/api/admin/settings/", params)
+}
+
+// Remote task management
+func adminListAllTasks() (json.RawMessage, error) {
+	return komariAdminGetData("GET", "/api/admin/task/all", nil)
+}
+
+func adminGetTask(taskID string) (json.RawMessage, error) {
+	return komariAdminGetData("GET", "/api/admin/task/"+taskID, nil)
+}
+
+func adminGetTaskResult(taskID string) (json.RawMessage, error) {
+	return komariAdminGetData("GET", "/api/admin/task/"+taskID+"/result", nil)
+}
+
+func adminExecCommand(command string) (json.RawMessage, error) {
+	return komariAdminGetData("POST", "/api/admin/task/exec", map[string]interface{}{"command": command})
+}
+
+// Record management
+func adminClearRecords(params map[string]interface{}) error {
+	return komariAdminAction("POST", "/api/admin/record/clear", params)
+}
+
+func adminClearAllRecords() error {
+	return komariAdminAction("POST", "/api/admin/record/clear/all", nil)
+}
+
+// Audit logs
+func adminGetLogs(limit, page int) (json.RawMessage, error) {
+	path := fmt.Sprintf("/api/admin/logs?limit=%d&page=%d", limit, page)
+	return komariAdminGetData("GET", path, nil)
+}
+
+// Session management
+func adminGetSessions() (json.RawMessage, error) {
+	return komariAdminGetData("GET", "/api/admin/session/get", nil)
+}
+
+func adminRemoveSession(id string) error {
+	return komariAdminAction("POST", "/api/admin/session/remove", map[string]interface{}{"id": id})
+}
+
+func adminRemoveAllSessions() error {
+	return komariAdminAction("POST", "/api/admin/session/remove/all", nil)
+}
+
+// Admin formatting helpers
+
+func fmtAdminClientList(clients []KomariNode) string {
+	if len(clients) == 0 {
+		return "📋 暂无客户端"
+	}
+	var s strings.Builder
+	s.WriteString(fmt.Sprintf("📋 *管理客户端列表* (%d个)\n\n", len(clients)))
+	for i, c := range clients {
+		emoji := "⚪"
+		if c.Hidden {
+			emoji = "🙈"
+		}
+		s.WriteString(fmt.Sprintf("%d. %s %s", i+1, emoji, c.Name))
+		if c.Region != "" {
+			s.WriteString(" " + c.Region)
+		}
+		if c.Group != "" {
+			s.WriteString(" [" + c.Group + "]")
+		}
+		s.WriteString("\n")
+	}
+	return s.String()
+}
+
+func fmtAdminClientDetail(c *KomariNode) string {
+	var s strings.Builder
+	s.WriteString(fmt.Sprintf("📋 *客户端详情*\n\n"))
+	s.WriteString(fmt.Sprintf("📛 名称: %s\n", c.Name))
+	s.WriteString(fmt.Sprintf("🔑 UUID: `%s`\n", c.UUID))
+	if c.Region != "" {
+		s.WriteString(fmt.Sprintf("🌍 区域: %s\n", c.Region))
+	}
+	if c.Group != "" {
+		s.WriteString(fmt.Sprintf("📂 分组: %s\n", c.Group))
+	}
+	if c.Tags != "" {
+		s.WriteString(fmt.Sprintf("🏷 标签: %s\n", c.Tags))
+	}
+	s.WriteString(fmt.Sprintf("📋 系统: %s %s\n", c.OS, c.Arch))
+	s.WriteString(fmt.Sprintf("🔲 CPU: %s (%d核)\n", c.CPUName, c.CPUCores))
+	s.WriteString(fmt.Sprintf("💾 内存: %s\n", fmtBytes(c.MemTotal)))
+	s.WriteString(fmt.Sprintf("📁 磁盘: %s\n", fmtBytes(c.DiskTotal)))
+	if c.Virtualization != "" {
+		s.WriteString(fmt.Sprintf("🔧 虚拟化: %s\n", c.Virtualization))
+	}
+	s.WriteString(fmt.Sprintf("⚖️ 权重: %d\n", c.Weight))
+	s.WriteString(fmt.Sprintf("🙈 隐藏: %s\n", boolStr(c.Hidden)))
+	if c.Price > 0 {
+		s.WriteString(fmt.Sprintf("💰 价格: %.2f%s/%d天\n", c.Price, c.Currency, c.BillingCycle))
+	}
+	if c.ExpiredAt != "" && !strings.HasPrefix(c.ExpiredAt, "0001") {
+		s.WriteString(fmt.Sprintf("📅 到期: %s\n", c.ExpiredAt[:10]))
+	}
+	if c.PublicRemark != "" {
+		s.WriteString(fmt.Sprintf("📝 备注: %s\n", c.PublicRemark))
+	}
+	return s.String()
+}
+
+func fmtAdminSettings(settings map[string]interface{}) string {
+	var s strings.Builder
+	s.WriteString("⚙️ *Komari 设置*\n\n")
+	getStr := func(key string) string {
+		if v, ok := settings[key]; ok {
+			return fmt.Sprintf("%v", v)
+		}
+		return "-"
+	}
+	getBool := func(key string) string {
+		if v, ok := settings[key]; ok {
+			if b, ok := v.(bool); ok {
+				return boolStr(b)
+			}
+		}
+		return "-"
+	}
+	s.WriteString(fmt.Sprintf("📛 站点名: %s\n", getStr("sitename")))
+	s.WriteString(fmt.Sprintf("📝 描述: %s\n", getStr("description")))
+	s.WriteString(fmt.Sprintf("🎨 主题: %s\n", getStr("theme")))
+	s.WriteString(fmt.Sprintf("📊 记录: %s\n", getBool("record_enabled")))
+	s.WriteString(fmt.Sprintf("🔒 私有: %s\n", getBool("private_site")))
+	s.WriteString(fmt.Sprintf("👁 访客看节点: %s\n", getBool("allow_guest_view_node")))
+	s.WriteString(fmt.Sprintf("📈 访客看统计: %s\n", getBool("allow_guest_view_stats")))
+	return s.String()
+}
+
+func fmtAdminLogs(data json.RawMessage) string {
+	var logs []AdminAuditLog
+	if err := json.Unmarshal(data, &logs); err != nil {
+		// Try generic array
+		var raw []map[string]interface{}
+		if err2 := json.Unmarshal(data, &raw); err2 != nil {
+			return "📝 无法解析日志数据"
+		}
+		var s strings.Builder
+		s.WriteString(fmt.Sprintf("📝 *审计日志* (%d条)\n\n", len(raw)))
+		for i, log := range raw {
+			if i >= 10 {
+				s.WriteString(fmt.Sprintf("... 还有 %d 条\n", len(raw)-10))
+				break
+			}
+			s.WriteString(fmt.Sprintf("%d. %v\n", i+1, log))
+		}
+		return s.String()
+	}
+	if len(logs) == 0 {
+		return "📝 暂无审计日志"
+	}
+	var s strings.Builder
+	s.WriteString(fmt.Sprintf("📝 *审计日志* (%d条)\n\n", len(logs)))
+	limit := 10
+	if len(logs) < limit {
+		limit = len(logs)
+	}
+	for i := 0; i < limit; i++ {
+		l := logs[i]
+		s.WriteString(fmt.Sprintf("%d. `%s`", i+1, l.Action))
+		if l.Username != "" {
+			s.WriteString(fmt.Sprintf(" - %s", l.Username))
+		}
+		if l.IP != "" {
+			s.WriteString(fmt.Sprintf(" (%s)", l.IP))
+		}
+		if l.CreatedAt != "" {
+			ts := l.CreatedAt
+			if len(ts) > 19 {
+				ts = ts[:19]
+			}
+			s.WriteString(fmt.Sprintf(" %s", ts))
+		}
+		s.WriteString("\n")
+	}
+	if len(logs) > limit {
+		s.WriteString(fmt.Sprintf("\n... 还有 %d 条", len(logs)-limit))
+	}
+	return s.String()
+}
+
+func fmtAdminSessions(data json.RawMessage) string {
+	var sessions []AdminSession
+	if err := json.Unmarshal(data, &sessions); err != nil {
+		var raw []map[string]interface{}
+		if err2 := json.Unmarshal(data, &raw); err2 != nil {
+			return "🔑 无法解析会话数据"
+		}
+		var s strings.Builder
+		s.WriteString(fmt.Sprintf("🔑 *活跃会话* (%d个)\n\n", len(raw)))
+		for i, sess := range raw {
+			if i >= 10 {
+				break
+			}
+			s.WriteString(fmt.Sprintf("%d. %v\n", i+1, sess))
+		}
+		return s.String()
+	}
+	if len(sessions) == 0 {
+		return "🔑 暂无活跃会话"
+	}
+	var s strings.Builder
+	s.WriteString(fmt.Sprintf("🔑 *活跃会话* (%d个)\n\n", len(sessions)))
+	limit := 10
+	if len(sessions) < limit {
+		limit = len(sessions)
+	}
+	for i := 0; i < limit; i++ {
+		sess := sessions[i]
+		name := sess.Username
+		if name == "" {
+			name = fmt.Sprintf("User#%d", sess.UserID)
+		}
+		s.WriteString(fmt.Sprintf("%d. %s", i+1, name))
+		if sess.IP != "" {
+			s.WriteString(fmt.Sprintf(" (%s)", sess.IP))
+		}
+		if sess.CreatedAt != "" {
+			ts := sess.CreatedAt
+			if len(ts) > 19 {
+				ts = ts[:19]
+			}
+			s.WriteString(fmt.Sprintf(" %s", ts))
+		}
+		s.WriteString("\n")
+	}
+	return s.String()
+}
+
+func fmtAdminTasks(data json.RawMessage) string {
+	var tasks []AdminRemoteTask
+	if err := json.Unmarshal(data, &tasks); err != nil {
+		var raw []map[string]interface{}
+		if err2 := json.Unmarshal(data, &raw); err2 != nil {
+			return "⚡ 无法解析任务数据"
+		}
+		var s strings.Builder
+		s.WriteString(fmt.Sprintf("⚡ *远程任务* (%d个)\n\n", len(raw)))
+		for i, t := range raw {
+			if i >= 10 {
+				break
+			}
+			s.WriteString(fmt.Sprintf("%d. %v\n", i+1, t))
+		}
+		return s.String()
+	}
+	if len(tasks) == 0 {
+		return "⚡ 暂无远程任务"
+	}
+	var s strings.Builder
+	s.WriteString(fmt.Sprintf("⚡ *远程任务* (%d个)\n\n", len(tasks)))
+	limit := 10
+	if len(tasks) < limit {
+		limit = len(tasks)
+	}
+	for i := 0; i < limit; i++ {
+		t := tasks[i]
+		s.WriteString(fmt.Sprintf("%d. `%s`", i+1, t.Command))
+		if t.Status != "" {
+			s.WriteString(fmt.Sprintf(" [%s]", t.Status))
+		}
+		if t.CreatedAt != "" {
+			ts := t.CreatedAt
+			if len(ts) > 19 {
+				ts = ts[:19]
+			}
+			s.WriteString(fmt.Sprintf(" %s", ts))
+		}
+		s.WriteString("\n")
+	}
+	return s.String()
+}
+
+func fmtAdminNotifications(data json.RawMessage, title string) string {
+	var configs []AdminNotificationConfig
+	if err := json.Unmarshal(data, &configs); err != nil {
+		var raw []map[string]interface{}
+		if err2 := json.Unmarshal(data, &raw); err2 != nil {
+			return fmt.Sprintf("🔔 无法解析%s数据", title)
+		}
+		if len(raw) == 0 {
+			return fmt.Sprintf("🔔 暂无%s配置", title)
+		}
+		var s strings.Builder
+		s.WriteString(fmt.Sprintf("🔔 *%s* (%d个)\n\n", title, len(raw)))
+		for i, c := range raw {
+			s.WriteString(fmt.Sprintf("%d. %v\n", i+1, c))
+		}
+		return s.String()
+	}
+	if len(configs) == 0 {
+		return fmt.Sprintf("🔔 暂无%s配置", title)
+	}
+	var s strings.Builder
+	s.WriteString(fmt.Sprintf("🔔 *%s* (%d个)\n\n", title, len(configs)))
+	for i, c := range configs {
+		status := "✅"
+		if !c.Enabled {
+			status = "⏸"
+		}
+		s.WriteString(fmt.Sprintf("%d. %s %s", i+1, status, c.Name))
+		if c.Type != "" {
+			s.WriteString(fmt.Sprintf(" (%s)", c.Type))
+		}
+		s.WriteString("\n")
+	}
+	return s.String()
+}

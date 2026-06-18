@@ -218,3 +218,43 @@ func (f *FlexibleInt64) UnmarshalJSON(data []byte) error {
 	}
 	return fmt.Errorf("FlexibleInt64: cannot parse %q", s)
 }
+
+// Admin API types
+
+type AdminNotificationConfig struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	Enabled  bool   `json:"enabled"`
+	Type     string `json:"type"`
+	Interval int    `json:"interval"`
+}
+
+type AdminRemoteTask struct {
+	ID        string `json:"id"`
+	TaskID    string `json:"task_id"`
+	Command   string `json:"command"`
+	Status    string `json:"status"`
+	Result    string `json:"result"`
+	CreatedAt string `json:"created_at"`
+}
+
+type AdminAuditLog struct {
+	ID        int    `json:"id"`
+	UserID    int    `json:"user_id"`
+	Username  string `json:"username"`
+	Action    string `json:"action"`
+	Detail    string `json:"detail"`
+	IP        string `json:"ip"`
+	CreatedAt string `json:"created_at"`
+}
+
+type AdminSession struct {
+	ID        string `json:"id"`
+	SessionID string `json:"session_id"`
+	UserID    int    `json:"user_id"`
+	Username  string `json:"username"`
+	IP        string `json:"ip"`
+	UserAgent string `json:"user_agent"`
+	CreatedAt string `json:"created_at"`
+	ExpiresAt string `json:"expires_at"`
+}

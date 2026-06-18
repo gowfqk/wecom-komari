@@ -22,6 +22,12 @@ func setTelegramBotCommands() error {
 		{"command": "rank", "description": "资源使用排名"},
 		{"command": "info", "description": "站点信息"},
 		{"command": "group", "description": "节点分组"},
+		{"command": "admin", "description": "管理员面板"},
+		{"command": "notify", "description": "通知管理"},
+		{"command": "ping_admin", "description": "Ping任务管理"},
+		{"command": "task", "description": "远程任务管理"},
+		{"command": "logs", "description": "审计日志"},
+		{"command": "settings", "description": "Komari设置"},
 		{"command": "help", "description": "帮助信息"},
 	}
 	_, err := httpDo("POST", TelegramAPIBase+"/bot"+TelegramBotToken+"/setMyCommands", map[string]interface{}{"commands": cmds}, nil)
@@ -84,13 +90,21 @@ func handleTgCmd(chatID int64, cmd string) {
 			"/ping - Ping任务\n"+
 			"/rank - 资源排名\n"+
 			"/info - 站点信息\n"+
-			"/group - 节点分组\n"+
+			"/group - 节点分组\n\n"+
+			"*管理命令:*\n"+
+			"/admin - 管理员面板\n"+
+			"/notify - 通知管理\n"+
+			"/ping_admin - Ping任务管理\n"+
+			"/task - 远程任务\n"+
+			"/logs - 审计日志\n"+
+			"/settings - 设置\n"+
 			"/help - 帮助\n\n"+
 			"直接输入节点名称查看详情",
 			[][]InlineButton{
 				{{Text: "📊 状态", CallbackData: "cmd:status"}, {Text: "📋 列表", CallbackData: "cmd:list"}},
 				{{Text: "🔴 离线", CallbackData: "cmd:offline"}, {Text: "📡 Ping", CallbackData: "cmd:ping"}},
 				{{Text: "🏆 排名", CallbackData: "cmd:rank"}, {Text: "ℹ️ 信息", CallbackData: "cmd:info"}},
+				{{Text: "🔧 管理", CallbackData: "adm"}, {Text: "⚙️ 设置", CallbackData: "adm_set"}},
 			})
 	case "status":
 		handleTgStatus(chatID)
@@ -106,6 +120,18 @@ func handleTgCmd(chatID int64, cmd string) {
 		handleTgInfo(chatID)
 	case "group":
 		handleTgGroup(chatID)
+	case "admin":
+		handleTgAdmin(chatID)
+	case "notify":
+		handleTgAdminNotify(chatID)
+	case "ping_admin":
+		handleTgAdminPingTasks(chatID)
+	case "task":
+		handleTgAdminTasks(chatID)
+	case "logs":
+		handleTgAdminLogs(chatID, 1)
+	case "settings":
+		handleTgAdminSettings(chatID)
 	default:
 		tgSend(chatID, "未知命令: /"+cmd)
 	}
@@ -296,6 +322,62 @@ func handleTgCallback(cb *TgCallback) {
 		handleTgRankSwitch(uid, param)
 	case "group":
 		handleTgGroupNodes(uid, param)
+	case "adm":
+		handleTgAdmin(uid)
+	case "adm_cl":
+		handleTgAdminClients(uid)
+	case "adm_cd":
+		handleTgAdminClientDetail(uid, param)
+	case "adm_ct":
+		handleTgAdminClientToken(uid, param)
+	case "adm_crm":
+		handleTgAdminClientRemoveConfirm(uid, param)
+	case "adm_crm_y":
+		handleTgAdminClientRemove(uid, param)
+	case "adm_no":
+		handleTgAdminNotify(uid)
+	case "adm_nlo":
+		handleTgAdminNotifyOffline(uid)
+	case "adm_nleo":
+		handleTgAdminNotifyEnableOffline(uid)
+	case "adm_nldo":
+		handleTgAdminNotifyDisableOffline(uid)
+	case "adm_nll":
+		handleTgAdminNotifyLoad(uid)
+	case "adm_nlt":
+		handleTgAdminNotifyTraffic(uid)
+	case "adm_nlet":
+		handleTgAdminNotifyEnableTraffic(uid)
+	case "adm_nldt":
+		handleTgAdminNotifyDisableTraffic(uid)
+	case "adm_pt":
+		handleTgAdminPingTasks(uid)
+	case "adm_ptd":
+		handleTgAdminPingTaskDeleteConfirm(uid, param)
+	case "adm_ptdy":
+		handleTgAdminPingTaskDelete(uid, param)
+	case "adm_tl":
+		handleTgAdminTasks(uid)
+	case "adm_td":
+		handleTgAdminTaskDetail(uid, param)
+	case "adm_tdr":
+		handleTgAdminTaskResult(uid, param)
+	case "adm_log":
+		handleTgAdminLogs(uid, 1)
+	case "adm_logp":
+		handleTgAdminLogs(uid, parsePage(param))
+	case "adm_set":
+		handleTgAdminSettings(uid)
+	case "adm_sess":
+		handleTgAdminSessions(uid)
+	case "adm_sey":
+		handleTgAdminRemoveAllSessionsConfirm(uid)
+	case "adm_seyy":
+		handleTgAdminRemoveAllSessions(uid)
+	case "adm_rec":
+		handleTgAdminClearAllRecordsConfirm(uid)
+	case "adm_recy":
+		handleTgAdminClearAllRecords(uid)
 	}
 }
 
@@ -599,4 +681,380 @@ func recoverMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}()
 		next(w, r)
 	}
+}
+
+// Admin helpers
+
+func parsePage(s string) int {
+	if s == "" {
+		return 1
+	}
+	var p int
+	_, err := fmt.Sscanf(s, "%d", &p)
+	if err != nil || p < 1 {
+		return 1
+	}
+	return p
+}
+
+// Admin menu
+func handleTgAdmin(chatID int64) {
+	tgSendKB(chatID, "🔧 *管理员面板*\n\n选择要管理的功能:",
+		[][]InlineButton{
+			{{Text: "📋 客户端", CallbackData: "adm_cl"}, {Text: "🔔 通知", CallbackData: "adm_no"}},
+			{{Text: "📡 Ping任务", CallbackData: "adm_pt"}, {Text: "⚡ 远程任务", CallbackData: "adm_tl"}},
+			{{Text: "📝 审计日志", CallbackData: "adm_log"}, {Text: "🔑 会话", CallbackData: "adm_sess"}},
+			{{Text: "⚙️ 设置", CallbackData: "adm_set"}},
+			{{Text: "🗑 清空记录", CallbackData: "adm_rec"}, {Text: "⬅️ 返回", CallbackData: "cmd:help"}},
+		})
+}
+
+// Client management
+func handleTgAdminClients(chatID int64) {
+	clients, err := adminListClients()
+	if err != nil {
+		tgSend(chatID, "❌ 获取客户端列表失败: "+err.Error())
+		return
+	}
+	txt := fmtAdminClientList(clients)
+	var btns [][]InlineButton
+	for _, c := range clients {
+		btns = append(btns, []InlineButton{{Text: c.Name, CallbackData: "adm_cd:" + c.UUID}})
+		if len(btns) >= 15 {
+			break
+		}
+	}
+	btns = append(btns, []InlineButton{{Text: "🔄 刷新", CallbackData: "adm_cl"}, {Text: "⬅️ 返回", CallbackData: "adm"}})
+	tgSendKB(chatID, txt, btns)
+}
+
+func handleTgAdminClientDetail(chatID int64, uuid string) {
+	client, err := adminGetClient(uuid)
+	if err != nil {
+		tgSend(chatID, "❌ 获取客户端详情失败: "+err.Error())
+		return
+	}
+	txt := fmtAdminClientDetail(client)
+	tgSendKB(chatID, txt, [][]InlineButton{
+		{{Text: "🔑 Token", CallbackData: "adm_ct:" + uuid}, {Text: "🗑 删除", CallbackData: "adm_crm:" + uuid}},
+		{{Text: "🔄 刷新", CallbackData: "adm_cd:" + uuid}, {Text: "📋 返回列表", CallbackData: "adm_cl"}},
+	})
+}
+
+func handleTgAdminClientToken(chatID int64, uuid string) {
+	token, err := adminGetClientToken(uuid)
+	if err != nil {
+		tgSend(chatID, "❌ 获取Token失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, fmt.Sprintf("🔑 *客户端 Token*\n\nUUID: `%s`\nToken: `%s`", uuid, token),
+		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_cd:" + uuid}}})
+}
+
+func handleTgAdminClientRemoveConfirm(chatID int64, uuid string) {
+	client, err := adminGetClient(uuid)
+	if err != nil {
+		tgSend(chatID, "❌ "+err.Error())
+		return
+	}
+	tgSendKB(chatID, fmt.Sprintf("⚠️ *确认删除客户端?*\n\n名称: %s\nUUID: `%s`\n\n此操作不可撤销!", client.Name, uuid),
+		[][]InlineButton{
+			{{Text: "✅ 确认删除", CallbackData: "adm_crm_y:" + uuid}, {Text: "❌ 取消", CallbackData: "adm_cd:" + uuid}},
+		})
+}
+
+func handleTgAdminClientRemove(chatID int64, uuid string) {
+	err := adminRemoveClient(uuid)
+	if err != nil {
+		tgSend(chatID, "❌ 删除失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, "✅ 客户端已删除", [][]InlineButton{{{Text: "📋 返回列表", CallbackData: "adm_cl"}}})
+}
+
+// Notification management
+func handleTgAdminNotify(chatID int64) {
+	tgSendKB(chatID, "🔔 *通知管理*\n\n选择通知类型:",
+		[][]InlineButton{
+			{{Text: "📴 离线通知", CallbackData: "adm_nlo"}, {Text: "📈 负载告警", CallbackData: "adm_nll"}},
+			{{Text: "📊 流量报告", CallbackData: "adm_nlt"}},
+			{{Text: "⬅️ 返回", CallbackData: "adm"}},
+		})
+}
+
+func handleTgAdminNotifyOffline(chatID int64) {
+	data, err := adminListOfflineNotifications()
+	if err != nil {
+		tgSend(chatID, "❌ 获取离线通知失败: "+err.Error())
+		return
+	}
+	txt := fmtAdminNotifications(data, "离线通知配置")
+	tgSendKB(chatID, txt, [][]InlineButton{
+		{{Text: "✅ 启用", CallbackData: "adm_nleo"}, {Text: "⏸ 禁用", CallbackData: "adm_nldo"}},
+		{{Text: "🔄 刷新", CallbackData: "adm_nlo"}, {Text: "⬅️ 返回", CallbackData: "adm_no"}},
+	})
+}
+
+func handleTgAdminNotifyEnableOffline(chatID int64) {
+	err := adminEnableOfflineNotification()
+	if err != nil {
+		tgSend(chatID, "❌ 启用失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, "✅ 离线通知已启用", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlo"}}})
+}
+
+func handleTgAdminNotifyDisableOffline(chatID int64) {
+	err := adminDisableOfflineNotification()
+	if err != nil {
+		tgSend(chatID, "❌ 禁用失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, "⏸ 离线通知已禁用", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlo"}}})
+}
+
+func handleTgAdminNotifyLoad(chatID int64) {
+	data, err := adminListLoadAlerts()
+	if err != nil {
+		tgSend(chatID, "❌ 获取负载告警失败: "+err.Error())
+		return
+	}
+	txt := fmtAdminNotifications(data, "负载告警配置")
+	tgSendKB(chatID, txt, [][]InlineButton{
+		{{Text: "🔄 刷新", CallbackData: "adm_nll"}, {Text: "⬅️ 返回", CallbackData: "adm_no"}},
+	})
+}
+
+func handleTgAdminNotifyTraffic(chatID int64) {
+	data, err := adminListTrafficReports()
+	if err != nil {
+		tgSend(chatID, "❌ 获取流量报告失败: "+err.Error())
+		return
+	}
+	txt := fmtAdminNotifications(data, "流量报告配置")
+	tgSendKB(chatID, txt, [][]InlineButton{
+		{{Text: "✅ 启用", CallbackData: "adm_nlet"}, {Text: "⏸ 禁用", CallbackData: "adm_nldt"}},
+		{{Text: "🔄 刷新", CallbackData: "adm_nlt"}, {Text: "⬅️ 返回", CallbackData: "adm_no"}},
+	})
+}
+
+func handleTgAdminNotifyEnableTraffic(chatID int64) {
+	err := adminEnableTrafficReport()
+	if err != nil {
+		tgSend(chatID, "❌ 启用失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, "✅ 流量报告已启用", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlt"}}})
+}
+
+func handleTgAdminNotifyDisableTraffic(chatID int64) {
+	err := adminDisableTrafficReport()
+	if err != nil {
+		tgSend(chatID, "❌ 禁用失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, "⏸ 流量报告已禁用", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlt"}}})
+}
+
+// Ping task management
+func handleTgAdminPingTasks(chatID int64) {
+	tasks, err := adminListPingTasks()
+	if err != nil {
+		tgSend(chatID, "❌ 获取Ping任务失败: "+err.Error())
+		return
+	}
+	if len(tasks) == 0 {
+		tgSendKB(chatID, "📡 暂无Ping任务", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm"}}})
+		return
+	}
+	var s strings.Builder
+	s.WriteString("📡 *Ping 任务管理*\n\n")
+	for _, t := range tasks {
+		status := "✅"
+		if !t.DefaultOn {
+			status = "⏸"
+		}
+		s.WriteString(fmt.Sprintf("%s %s (ID: %d)\n", status, t.Name, t.ID))
+		s.WriteString(fmt.Sprintf("   类型: %s | 间隔: %ds\n", t.Type, t.Interval))
+	}
+	var btns [][]InlineButton
+	for _, t := range tasks {
+		btns = append(btns, []InlineButton{
+			{Text: fmt.Sprintf("🗑 删除 #%d %s", t.ID, t.Name), CallbackData: fmt.Sprintf("adm_ptd:%d", t.ID)},
+		})
+		if len(btns) >= 10 {
+			break
+		}
+	}
+	btns = append(btns, []InlineButton{{Text: "🔄 刷新", CallbackData: "adm_pt"}, {Text: "⬅️ 返回", CallbackData: "adm"}})
+	tgSendKB(chatID, s.String(), btns)
+}
+
+func handleTgAdminPingTaskDeleteConfirm(chatID int64, idStr string) {
+	var id int
+	fmt.Sscanf(idStr, "%d", &id)
+	tgSendKB(chatID, fmt.Sprintf("⚠️ *确认删除Ping任务 #%d?*\n\n此操作不可撤销!", id),
+		[][]InlineButton{
+			{{Text: "✅ 确认删除", CallbackData: fmt.Sprintf("adm_ptdy:%d", id)}, {Text: "❌ 取消", CallbackData: "adm_pt"}},
+		})
+}
+
+func handleTgAdminPingTaskDelete(chatID int64, idStr string) {
+	var id int
+	fmt.Sscanf(idStr, "%d", &id)
+	err := adminDeletePingTask(id)
+	if err != nil {
+		tgSend(chatID, "❌ 删除失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, "✅ Ping任务已删除", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_pt"}}})
+}
+
+// Remote task management
+func handleTgAdminTasks(chatID int64) {
+	data, err := adminListAllTasks()
+	if err != nil {
+		tgSend(chatID, "❌ 获取任务列表失败: "+err.Error())
+		return
+	}
+	txt := fmtAdminTasks(data)
+	tgSendKB(chatID, txt, [][]InlineButton{
+		{{Text: "🔄 刷新", CallbackData: "adm_tl"}, {Text: "⬅️ 返回", CallbackData: "adm"}},
+	})
+}
+
+func handleTgAdminTaskDetail(chatID int64, taskID string) {
+	data, err := adminGetTask(taskID)
+	if err != nil {
+		tgSend(chatID, "❌ 获取任务详情失败: "+err.Error())
+		return
+	}
+	// Format as readable JSON
+	var pretty interface{}
+	if json.Unmarshal(data, &pretty) == nil {
+		if formatted, err := json.MarshalIndent(pretty, "", "  "); err == nil {
+			txt := fmt.Sprintf("⚡ *任务详情*\n\n```\n%s\n```", string(formatted))
+			if len(txt) > 4000 {
+				txt = txt[:4000] + "...```"
+			}
+			tgSendKB(chatID, txt, [][]InlineButton{
+				{{Text: "📊 结果", CallbackData: "adm_tdr:" + taskID}},
+				{{Text: "⬅️ 返回", CallbackData: "adm_tl"}},
+			})
+			return
+		}
+	}
+	tgSendKB(chatID, fmt.Sprintf("⚡ *任务详情*\n\n%s", string(data)),
+		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_tl"}}})
+}
+
+func handleTgAdminTaskResult(chatID int64, taskID string) {
+	data, err := adminGetTaskResult(taskID)
+	if err != nil {
+		tgSend(chatID, "❌ 获取任务结果失败: "+err.Error())
+		return
+	}
+	var pretty interface{}
+	if json.Unmarshal(data, &pretty) == nil {
+		if formatted, err := json.MarshalIndent(pretty, "", "  "); err == nil {
+			txt := fmt.Sprintf("📊 *任务结果*\n\n```\n%s\n```", string(formatted))
+			if len(txt) > 4000 {
+				txt = txt[:4000] + "...```"
+			}
+			tgSendKB(chatID, txt, [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_td:" + taskID}}})
+			return
+		}
+	}
+	tgSendKB(chatID, fmt.Sprintf("📊 *任务结果*\n\n%s", string(data)),
+		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_td:" + taskID}}})
+}
+
+// Audit logs
+func handleTgAdminLogs(chatID int64, page int) {
+	if page < 1 {
+		page = 1
+	}
+	data, err := adminGetLogs(10, page)
+	if err != nil {
+		tgSend(chatID, "❌ 获取审计日志失败: "+err.Error())
+		return
+	}
+	txt := fmtAdminLogs(data)
+	var btns [][]InlineButton
+	if page > 1 {
+		btns = append(btns, []InlineButton{
+			{Text: "⬅️ 上一页", CallbackData: fmt.Sprintf("adm_logp:%d", page-1)},
+			{Text: "➡️ 下一页", CallbackData: fmt.Sprintf("adm_logp:%d", page+1)},
+		})
+	} else {
+		btns = append(btns, []InlineButton{
+			{Text: "➡️ 下一页", CallbackData: fmt.Sprintf("adm_logp:%d", page+1)},
+		})
+	}
+	btns = append(btns, []InlineButton{{Text: "🔄 刷新", CallbackData: fmt.Sprintf("adm_logp:%d", page)}, {Text: "⬅️ 返回", CallbackData: "adm"}})
+	tgSendKB(chatID, txt, btns)
+}
+
+// Settings
+func handleTgAdminSettings(chatID int64) {
+	settings, err := adminGetSettings()
+	if err != nil {
+		tgSend(chatID, "❌ 获取设置失败: "+err.Error())
+		return
+	}
+	txt := fmtAdminSettings(settings)
+	tgSendKB(chatID, txt, [][]InlineButton{
+		{{Text: "🔄 刷新", CallbackData: "adm_set"}, {Text: "⬅️ 返回", CallbackData: "adm"}},
+	})
+}
+
+// Sessions
+func handleTgAdminSessions(chatID int64) {
+	data, err := adminGetSessions()
+	if err != nil {
+		tgSend(chatID, "❌ 获取会话失败: "+err.Error())
+		return
+	}
+	txt := fmtAdminSessions(data)
+	tgSendKB(chatID, txt, [][]InlineButton{
+		{{Text: "🗑 清除所有会话", CallbackData: "adm_sey"}},
+		{{Text: "🔄 刷新", CallbackData: "adm_sess"}, {Text: "⬅️ 返回", CallbackData: "adm"}},
+	})
+}
+
+func handleTgAdminRemoveAllSessionsConfirm(chatID int64) {
+	tgSendKB(chatID, "⚠️ *确认清除所有会话?*\n\n这将使所有已登录的会话失效，包括当前bot的会话。",
+		[][]InlineButton{
+			{{Text: "✅ 确认", CallbackData: "adm_seyy"}, {Text: "❌ 取消", CallbackData: "adm_sess"}},
+		})
+}
+
+func handleTgAdminRemoveAllSessions(chatID int64) {
+	err := adminRemoveAllSessions()
+	if err != nil {
+		tgSend(chatID, "❌ 清除失败: "+err.Error())
+		return
+	}
+	// Reset cached session token
+	sessMu.Lock()
+	sessToken = ""
+	sessMu.Unlock()
+	tgSendKB(chatID, "✅ 所有会话已清除", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm"}}})
+}
+
+// Record management
+func handleTgAdminClearAllRecordsConfirm(chatID int64) {
+	tgSendKB(chatID, "⚠️ *确认清空所有记录?*\n\n此操作不可撤销!",
+		[][]InlineButton{
+			{{Text: "✅ 确认清空", CallbackData: "adm_recy"}, {Text: "❌ 取消", CallbackData: "adm"}},
+		})
+}
+
+func handleTgAdminClearAllRecords(chatID int64) {
+	err := adminClearAllRecords()
+	if err != nil {
+		tgSend(chatID, "❌ 清空失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, "✅ 所有记录已清空", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm"}}})
 }
