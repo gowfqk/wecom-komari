@@ -449,6 +449,12 @@ func fmtNodeStatus(n *KomariNode, rt *KomariRealtimeData) string {
 	if n.ExpiredAt != "" && !strings.HasPrefix(n.ExpiredAt, "0001") {
 		s.WriteString(fmt.Sprintf("\n📅 到期: %s", n.ExpiredAt[:10]))
 	}
+	if n.PublicRemark != "" {
+		s.WriteString(fmt.Sprintf("\n📝 备注: %s", n.PublicRemark))
+	}
+	if n.Remark != "" {
+		s.WriteString(fmt.Sprintf("\n🔒 私有备注: %s", n.Remark))
+	}
 	return s.String()
 }
 

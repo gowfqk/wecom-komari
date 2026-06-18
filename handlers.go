@@ -869,6 +869,7 @@ func processWecomMsg(content string) string {
 			"分组 - 节点分组\n\n" +
 			"🔧 管理命令:\n" +
 			"客户端 - 客户端管理\n" +
+			"新 节点名 - 快速创建客户端\n" +
 			"通知 - 通知管理\n" +
 			"Ping任务 - Ping任务管理\n" +
 			"远程任务 - 远程任务\n" +
@@ -877,7 +878,7 @@ func processWecomMsg(content string) string {
 			"设置 - 系统设置\n\n" +
 			"📌 带参数命令:\n" +
 			"详情 节点名 - 查看节点详情\n" +
-			"客户端 Token 节点名 - 获取客户端Token\n" +
+			"客户端 Token 节点名 - 获取Token+安装命令\n" +
 			"客户端 删除 节点名 - 删除客户端\n" +
 			"客户端 添加 name=xxx region=xxx - 添加客户端\n" +
 			"客户端 编辑 节点名 key=value - 编辑客户端\n\n" +
@@ -895,6 +896,8 @@ func processWecomMsg(content string) string {
 			"执行 命令 - 执行远程命令\n" +
 			"清空记录 [type=load] - 清空记录\n" +
 			"删除会话 [ID] - 删除会话\n\n" +
+			"💡 支持中文参数名:\n" +
+			"名称/区域/分组/标签/权重/隐藏/价格/货币/计费周期/备注/私有备注/流量限制\n\n" +
 			"直接输入节点名称快速查看"
 	case "状态", "状态查询":
 		nodes, err := getNodeList()
@@ -1060,7 +1063,16 @@ func processWecomMsg(content string) string {
 		if err != nil {
 			return "❌ 获取Token失败: " + err.Error()
 		}
-		return fmt.Sprintf("🔑 客户端 Token\n\n名称: %s\nUUID: %s\nToken: %s", name, uuid, token)
+		siteURL := strings.TrimRight(KomariUrl, "/")
+		linuxURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh")
+		winURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1")
+		linuxCmd := fmt.Sprintf("wget -qO- %s | sudo bash -s -- -e %s -t %s", linuxURL, siteURL, token)
+		winCmd := fmt.Sprintf("powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"iwr '%s' -UseBasicParsing -OutFile 'install.ps1'; & '.\\install.ps1' '-e' '%s' '-t' '%s'\"", winURL, siteURL, token)
+		msg := fmt.Sprintf("🔑 客户端 Token\n\n名称: %s\nUUID: %s\nToken: %s\n\n", name, uuid, token)
+		msg += "📦 Linux 一键安装:\n" + linuxCmd + "\n\n"
+		msg += "📦 Windows PowerShell:\n" + winCmd + "\n\n"
+		msg += "📦 macOS / FreeBSD:\n手动下载: https://github.com/komari-monitor/komari-agent/releases"
+		return msg
 	}
 
 	// 客户端 删除 节点名
@@ -1075,6 +1087,46 @@ func processWecomMsg(content string) string {
 			return "❌ 删除失败: " + err.Error()
 		}
 		return fmt.Sprintf("✅ 客户端 '%s' 已删除", name)
+	}
+
+	// 新 节点名 — 快速创建客户端
+	if strings.HasPrefix(content, "新 ") {
+		name := strings.TrimSpace(content[len("新 "):])
+		if name == "" {
+			return "❌ 请指定节点名\n\n格式: 新 节点名"
+		}
+		params := map[string]interface{}{"name": name}
+		err := adminAddClient(params)
+		if err != nil {
+			return "❌ 添加失败: " + err.Error()
+		}
+		// 获取刚创建的客户端信息
+		nodes, _ := getNodeList()
+		var createdNode *KomariNode
+		for _, n := range nodes {
+			if n.Name == name {
+				createdNode = &n
+				break
+			}
+		}
+		if createdNode == nil {
+			return fmt.Sprintf("✅ 客户端 '%s' 已添加", name)
+		}
+		token, _ := adminGetClientToken(createdNode.UUID)
+		siteURL := strings.TrimRight(KomariUrl, "/")
+		linuxURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh")
+		winURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1")
+		linuxCmd := fmt.Sprintf("wget -qO- %s | sudo bash -s -- -e %s -t %s", linuxURL, siteURL, token)
+		winCmd := fmt.Sprintf("powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"iwr '%s' -UseBasicParsing -OutFile 'install.ps1'; & '.\\install.ps1' '-e' '%s' '-t' '%s'\"", winURL, siteURL, token)
+		msg := fmt.Sprintf("✅ 客户端 '%s' 已添加\n\n", name)
+		msg += fmt.Sprintf("UUID: %s\n", createdNode.UUID)
+		if token != "" {
+			msg += fmt.Sprintf("Token: %s\n\n", token)
+			msg += "📦 Linux 一键安装:\n" + linuxCmd + "\n\n"
+			msg += "📦 Windows PowerShell:\n" + winCmd + "\n\n"
+			msg += "📦 macOS / FreeBSD:\n手动下载: https://github.com/komari-monitor/komari-agent/releases"
+		}
+		return msg
 	}
 
 	// 客户端 添加 name=xxx region=xxx ...
@@ -1104,7 +1156,34 @@ func processWecomMsg(content string) string {
 		if err != nil {
 			return "❌ 添加失败: " + err.Error()
 		}
-		return fmt.Sprintf("✅ 客户端 '%s' 已添加", params["name"])
+		// 获取刚创建的客户端信息
+		name := params["name"].(string)
+		nodes, _ := getNodeList()
+		var createdNode *KomariNode
+		for _, n := range nodes {
+			if n.Name == name {
+				createdNode = &n
+				break
+			}
+		}
+		if createdNode == nil {
+			return fmt.Sprintf("✅ 客户端 '%s' 已添加", name)
+		}
+		token, _ := adminGetClientToken(createdNode.UUID)
+		siteURL := strings.TrimRight(KomariUrl, "/")
+		linuxURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh")
+		winURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1")
+		linuxCmd := fmt.Sprintf("wget -qO- %s | sudo bash -s -- -e %s -t %s", linuxURL, siteURL, token)
+		winCmd := fmt.Sprintf("powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"iwr '%s' -UseBasicParsing -OutFile 'install.ps1'; & '.\\install.ps1' '-e' '%s' '-t' '%s'\"", winURL, siteURL, token)
+		msg := fmt.Sprintf("✅ 客户端 '%s' 已添加\n\n", name)
+		msg += fmt.Sprintf("UUID: %s\n", createdNode.UUID)
+		if token != "" {
+			msg += fmt.Sprintf("Token: %s\n\n", token)
+			msg += "📦 Linux 一键安装:\n" + linuxCmd + "\n\n"
+			msg += "📦 Windows PowerShell:\n" + winCmd + "\n\n"
+			msg += "📦 macOS / FreeBSD:\n手动下载: https://github.com/komari-monitor/komari-agent/releases"
+		}
+		return msg
 	}
 
 	// 客户端 编辑 节点名 key=value ...
