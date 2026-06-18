@@ -646,7 +646,8 @@ func wecomCallbackHandler(w http.ResponseWriter, r *http.Request) {
 			var decMsg WecomCallbackXML
 			xml.Unmarshal([]byte(decrypted), &decMsg)
 			content = decMsg.Content
-			logger.Printf("[WecomCallback] Decrypted content: %s", content)
+			msg.FromUserName = decMsg.FromUserName
+			logger.Printf("[WecomCallback] Decrypted content: %s, from: %s", content, msg.FromUserName)
 		}
 		if content != "" {
 			reply := processWecomMsg(content)
