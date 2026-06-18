@@ -719,8 +719,10 @@ func getWecomAccessToken() (string, error) {
 	}
 	b, err := httpDo("GET", fmt.Sprintf(GetTokenURL, WecomCid, WecomSecret), nil, nil)
 	if err != nil {
+		logger.Printf("[WecomToken] Get token failed: %v", err)
 		return "", err
 	}
+	logger.Printf("[WecomToken] Token API response: %s", string(b))
 	var r struct {
 		Errcode     int    `json:"errcode"`
 		AccessToken string `json:"access_token"`
@@ -728,6 +730,7 @@ func getWecomAccessToken() (string, error) {
 	}
 	json.Unmarshal(b, &r)
 	if r.Errcode != 0 {
+		logger.Printf("[WecomToken] Token error: %d", r.Errcode)
 		return "", fmt.Errorf("wecom token error: %d", r.Errcode)
 	}
 	wecomTokenMu.Lock()
