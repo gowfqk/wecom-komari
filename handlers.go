@@ -583,15 +583,23 @@ func processWecomMsg(content string) string {
 	content = strings.TrimSpace(content)
 	switch {
 	case content == "帮助" || content == "/help" || content == "help":
-		return "可用命令:\n" +
-			"/status - 状态\n" +
-			"/list - 列表\n" +
+		return "📋 查询命令:\n" +
+			"/status - 节点状态\n" +
+			"/list - 节点列表\n" +
 			"/offline - 离线节点\n" +
 			"/ping - Ping任务\n" +
-			"/rank - 排名\n" +
+			"/rank - 性能排名\n" +
 			"/info - 站点信息\n" +
-			"/group - 分组\n" +
-			"/help - 帮助\n" +
+			"/group - 分组信息\n\n" +
+			"🔧 管理命令:\n" +
+			"/admin - 管理面板\n" +
+			"/admin_clients - 客户端\n" +
+			"/admin_notify - 通知\n" +
+			"/admin_ping - Ping任务\n" +
+			"/admin_tasks - 远程任务\n" +
+			"/admin_logs - 审计日志\n" +
+			"/admin_sessions - 会话\n" +
+			"/admin_settings - 设置\n\n" +
 			"直接输入节点名称查看详情"
 	case content == "状态" || content == "/status" || content == "status":
 		nodes, err := getNodeList()
@@ -651,6 +659,83 @@ func processWecomMsg(content string) string {
 		return fmtSiteInfo()
 	case content == "分组" || content == "/group" || content == "group":
 		return fmtGroupList()
+	case content == "管理" || content == "/admin" || content == "admin":
+		return "🔧 管理员面板\n\n" +
+			"/admin_clients - 客户端管理\n" +
+			"/admin_notify - 通知管理\n" +
+			"/admin_ping - Ping任务管理\n" +
+			"/admin_tasks - 远程任务\n" +
+			"/admin_logs - 审计日志\n" +
+			"/admin_sessions - 会话管理\n" +
+			"/admin_settings - 设置\n" +
+			"/admin_clear - 清空记录"
+	case content == "/admin_clients" || content == "客户端管理":
+		clients, err := adminListClients()
+		if err != nil {
+			return "❌ " + err.Error()
+		}
+		return fmtAdminClientList(clients)
+	case content == "/admin_notify" || content == "通知管理":
+		var sb strings.Builder
+		sb.WriteString("🔔 通知管理\n\n")
+		offline, err := adminListOfflineNotifications()
+		if err == nil {
+		sb.WriteString("📤 离线通知:\n")
+		sb.WriteString(fmtAdminNotifications(offline, "离线通知"))
+		sb.WriteString("\n")
+		}
+		traffic, err := adminListTrafficReports()
+		if err == nil {
+		sb.WriteString("📊 流量报告:\n")
+		sb.WriteString(fmtAdminNotifications(traffic, "流量报告"))
+		sb.WriteString("\n")
+		}
+		return sb.String()
+	case content == "/admin_ping" || content == "Ping管理":
+		tasks, err := adminListPingTasks()
+		if err != nil {
+			return "❌ " + err.Error()
+		}
+		var sb strings.Builder
+		sb.WriteString("📡 Ping任务\n\n")
+		if len(tasks) == 0 {
+		sb.WriteString("暂无Ping任务")
+		} else {
+		for _, t := range tasks {
+			sb.WriteString(fmt.Sprintf("• %s (ID: %s)\n", t.Name, t.ID))
+		}
+		}
+		return sb.String()
+	case content == "/admin_tasks" || content == "远程任务":
+		tasks, err := adminListAllTasks()
+		if err != nil {
+			return "❌ " + err.Error()
+		}
+		return fmtAdminTasks(tasks)
+	case content == "/admin_logs" || content == "日志":
+		logs, err := adminGetLogs(20, 1)
+		if err != nil {
+			return "❌ " + err.Error()
+		}
+		return fmtAdminLogs(logs)
+	case content == "/admin_sessions" || content == "会话":
+		sessions, err := adminGetSessions()
+		if err != nil {
+			return "❌ " + err.Error()
+		}
+		return fmtAdminSessions(sessions)
+	case content == "/admin_settings" || content == "设置":
+		settings, err := adminGetSettings()
+		if err != nil {
+			return "❌ " + err.Error()
+		}
+		return fmtAdminSettings(settings)
+	case content == "/admin_clear" || content == "清空记录":
+		err := adminClearAllRecords()
+		if err != nil {
+			return "❌ 清空失败: " + err.Error()
+		}
+		return "✅ 所有记录已清空"
 	default:
 		ns := searchNodes(content)
 		switch len(ns) {
