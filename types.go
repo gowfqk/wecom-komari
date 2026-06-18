@@ -45,6 +45,7 @@ type KomariNode struct {
 	Group            string  `json:"group"`
 	Tags             string  `json:"tags"`
 	PublicRemark     string  `json:"public_remark"`
+	Remark           string  `json:"remark"`
 	Hidden           bool    `json:"hidden"`
 	TrafficLimit     uint64  `json:"traffic_limit"`
 	TrafficLimitType string  `json:"traffic_limit_type"`

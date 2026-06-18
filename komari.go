@@ -1059,6 +1059,9 @@ func fmtAdminClientDetail(c *KomariNode) string {
 	if c.PublicRemark != "" {
 		s.WriteString(fmt.Sprintf("📝 备注: %s\n", c.PublicRemark))
 	}
+	if c.Remark != "" {
+		s.WriteString(fmt.Sprintf("🔒 私有备注: %s\n", c.Remark))
+	}
 	return s.String()
 }
 
