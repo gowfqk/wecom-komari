@@ -64,6 +64,7 @@ docker-compose up -d
 | `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | 否 |
 | `TELEGRAM_WEBHOOK_SECRET` | Telegram Webhook 密钥 | 否 |
 | `TELEGRAM_ALLOWED_USERS` | 允许的用户ID列表 | 否 |
+| `GITHUB_PROXY` | GitHub 下载代理（如 `https://ghproxy.com/`） | 否 |
 
 > *`KOMARI_API_KEY` 与 `KOMARI_USERNAME`/`KOMARI_PASSWORD` 二选一
 
