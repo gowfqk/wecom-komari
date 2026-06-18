@@ -660,8 +660,12 @@ func wecomCallbackHandler(w http.ResponseWriter, r *http.Request) {
 				} else {
 					wd := WecomMsg{ToUser: msg.FromUserName, MsgType: "text", AgentId: WecomAid}
 					wd.Text.Content = reply
-					httpDo("POST", fmt.Sprintf(SendMsgURL, token), wd, nil)
-					logger.Printf("[WecomCallback] Reply sent via API")
+					resp, err := httpDo("POST", fmt.Sprintf(SendMsgURL, token), wd, nil)
+					if err != nil {
+						logger.Printf("[WecomCallback] API error: %v", err)
+					} else {
+						logger.Printf("[WecomCallback] API response: %s", string(resp))
+					}
 				}
 			}
 		}
