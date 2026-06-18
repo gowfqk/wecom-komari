@@ -382,6 +382,54 @@ func handleTgCallback(cb *TgCallback) {
 		handleTgAdminClearAllRecordsConfirm(uid)
 	case "adm_recy":
 		handleTgAdminClearAllRecords(uid)
+	case "adm_ca":
+		handleTgAdminClientAddForm(uid)
+	case "adm_cas":
+		handleTgAdminClientAddSubmit(uid, param)
+	case "adm_ce":
+		handleTgAdminClientEditForm(uid, param)
+	case "adm_ces":
+		handleTgAdminClientEditSubmit(uid, param)
+	case "adm_nloe":
+		handleTgAdminNotifyOfflineEdit(uid)
+	case "adm_nla":
+		handleTgAdminLoadAlertAddForm(uid)
+	case "adm_nlad":
+		handleTgAdminLoadAlertAddSubmit(uid, param)
+	case "adm_nld":
+		handleTgAdminLoadAlertDeleteConfirm(uid, param)
+	case "adm_nldy":
+		handleTgAdminLoadAlertDelete(uid, param)
+	case "adm_nle":
+		handleTgAdminLoadAlertEditForm(uid, param)
+	case "adm_nled":
+		handleTgAdminLoadAlertEditSubmit(uid, param)
+	case "adm_nlte":
+		handleTgAdminTrafficReportEdit(uid)
+	case "adm_pta":
+		handleTgAdminPingTaskAddForm(uid)
+	case "adm_ptad":
+		handleTgAdminPingTaskAddSubmit(uid, param)
+	case "adm_pte":
+		handleTgAdminPingTaskEditForm(uid, param)
+	case "adm_pted":
+		handleTgAdminPingTaskEditSubmit(uid, param)
+	case "adm_sete":
+		handleTgAdminSettingsEditForm(uid)
+	case "adm_seted":
+		handleTgAdminSettingsEditSubmit(uid, param)
+	case "adm_exec":
+		handleTgAdminExecCommandForm(uid)
+	case "adm_execd":
+		handleTgAdminExecCommandSubmit(uid, param)
+	case "adm_recd":
+		handleTgAdminClearRecordsForm(uid)
+	case "adm_recds":
+		handleTgAdminClearRecordsSubmit(uid, param)
+	case "adm_sessd":
+		handleTgAdminRemoveSessionConfirm(uid, param)
+	case "adm_sessdy":
+		handleTgAdminRemoveSession(uid, param)
 	}
 }
 
@@ -694,7 +742,23 @@ func processWecomMsg(content string) string {
 			"📌 带参数命令:\n" +
 			"详情 节点名 - 查看节点详情\n" +
 			"客户端 Token 节点名 - 获取客户端Token\n" +
-			"客户端 删除 节点名 - 删除客户端\n\n" +
+			"客户端 删除 节点名 - 删除客户端\n" +
+			"客户端 添加 name=xxx region=xxx - 添加客户端\n" +
+			"客户端 编辑 节点名 key=value - 编辑客户端\n\n" +
+			"🔧 通知管理:\n" +
+			"离线通知 编辑 key=value - 编辑离线通知\n" +
+			"负载告警 添加 name=xxx type=cpu threshold=80\n" +
+			"负载告警 删除 ID - 删除负载告警\n" +
+			"负载告警 编辑 ID key=value - 编辑负载告警\n" +
+			"流量报告 编辑 key=value - 编辑流量报告\n\n" +
+			"📡 Ping管理:\n" +
+			"Ping添加 name=xxx type=http target=xxx interval=60\n" +
+			"Ping编辑 ID key=value - 编辑Ping任务\n\n" +
+			"⚙️ 其他管理:\n" +
+			"设置 编辑 key=value - 编辑设置\n" +
+			"执行 命令 - 执行远程命令\n" +
+			"清空记录 [type=load] - 清空记录\n" +
+			"删除会话 [ID] - 删除会话\n\n" +
 			"直接输入节点名称快速查看"
 	case "状态", "状态查询":
 		nodes, err := getNodeList()
@@ -877,6 +941,298 @@ func processWecomMsg(content string) string {
 		return fmt.Sprintf("✅ 客户端 '%s' 已删除", name)
 	}
 
+	// 客户端 添加 name=xxx region=xxx ...
+	if strings.HasPrefix(content, "客户端 添加 ") || strings.HasPrefix(content, "客户端 添加	") {
+		paramStr := strings.TrimSpace(content[len("客户端 添加 "):])
+		params := parseKeyValueParams(paramStr)
+		if _, ok := params["name"]; !ok {
+			return "❌ 缺少必填参数: name\n\n格式: 客户端 添加 name=节点名 region=区域 group=分组"
+		}
+		// Convert types
+		if v, ok := params["weight"]; ok {
+			params["weight"] = parseFloat(v.(string))
+		}
+		if v, ok := params["hidden"]; ok {
+			params["hidden"] = v.(string) == "true"
+		}
+		if v, ok := params["price"]; ok {
+			params["price"] = parseFloat(v.(string))
+		}
+		if v, ok := params["billing_cycle"]; ok {
+			params["billing_cycle"] = parseInt(v.(string))
+		}
+		if v, ok := params["traffic_limit"]; ok {
+			params["traffic_limit"] = parseUint64(v.(string))
+		}
+		err := adminAddClient(params)
+		if err != nil {
+			return "❌ 添加失败: " + err.Error()
+		}
+		return fmt.Sprintf("✅ 客户端 '%s' 已添加", params["name"])
+	}
+
+	// 客户端 编辑 节点名 key=value ...
+	if strings.HasPrefix(content, "客户端 编辑 ") || strings.HasPrefix(content, "客户端 编辑	") {
+		parts := strings.SplitN(strings.TrimSpace(content[len("客户端 编辑 "):]), " ", 2)
+		if len(parts) < 2 {
+			return "❌ 格式错误\n\n格式: 客户端 编辑 节点名 key=value key2=value2"
+		}
+		name := parts[0]
+		uuid, err := resolveNodeUUID(name)
+		if err != nil {
+			return "❌ " + err.Error()
+		}
+		params := parseKeyValueParams(parts[1])
+		// Convert types
+		if v, ok := params["weight"]; ok {
+			params["weight"] = parseFloat(v.(string))
+		}
+		if v, ok := params["hidden"]; ok {
+			params["hidden"] = v.(string) == "true"
+		}
+		if v, ok := params["price"]; ok {
+			params["price"] = parseFloat(v.(string))
+		}
+		if v, ok := params["billing_cycle"]; ok {
+			params["billing_cycle"] = parseInt(v.(string))
+		}
+		if v, ok := params["traffic_limit"]; ok {
+			params["traffic_limit"] = parseUint64(v.(string))
+		}
+		err = adminEditClient(uuid, params)
+		if err != nil {
+			return "❌ 编辑失败: " + err.Error()
+		}
+		return fmt.Sprintf("✅ 客户端 '%s' 已更新", name)
+	}
+
+	// 离线通知 编辑 key=value ...
+	if strings.HasPrefix(content, "离线通知 编辑 ") || strings.HasPrefix(content, "离线通知 编辑	") {
+		paramStr := strings.TrimSpace(content[len("离线通知 编辑 "):])
+		params := parseKeyValueParams(paramStr)
+		if v, ok := params["enabled"]; ok {
+			params["enabled"] = v.(string) == "true"
+		}
+		if v, ok := params["interval"]; ok {
+			params["interval"] = parseInt(v.(string))
+		}
+		err := adminEditOfflineNotification(params)
+		if err != nil {
+			return "❌ 编辑失败: " + err.Error()
+		}
+		return "✅ 离线通知配置已更新"
+	}
+
+	// 负载告警 添加 name=xxx type=cpu threshold=80
+	if strings.HasPrefix(content, "负载告警 添加 ") || strings.HasPrefix(content, "负载告警 添加	") {
+		paramStr := strings.TrimSpace(content[len("负载告警 添加 "):])
+		params := parseKeyValueParams(paramStr)
+		if _, ok := params["name"]; !ok {
+			return "❌ 缺少必填参数: name\n\n格式: 负载告警 添加 name=规则名 type=cpu threshold=80"
+		}
+		if v, ok := params["threshold"]; ok {
+			params["threshold"] = parseFloat(v.(string))
+		}
+		if v, ok := params["interval"]; ok {
+			params["interval"] = parseInt(v.(string))
+		}
+		if v, ok := params["enabled"]; ok {
+			params["enabled"] = v.(string) == "true"
+		}
+		err := adminAddLoadAlert(params)
+		if err != nil {
+			return "❌ 添加失败: " + err.Error()
+		}
+		return fmt.Sprintf("✅ 负载告警规则 '%s' 已添加", params["name"])
+	}
+
+	// 负载告警 删除 id
+	if strings.HasPrefix(content, "负载告警 删除 ") || strings.HasPrefix(content, "负载告警 删除	") {
+		idStr := strings.TrimSpace(content[len("负载告警 删除 "):])
+		id := parseInt(idStr)
+		if id == 0 {
+			return "❌ 无效的ID"
+		}
+		err := adminDeleteLoadAlert(map[string]interface{}{"id": id})
+		if err != nil {
+			return "❌ 删除失败: " + err.Error()
+		}
+		return "✅ 负载告警规则已删除"
+	}
+
+	// 负载告警 编辑 id key=value ...
+	if strings.HasPrefix(content, "负载告警 编辑 ") || strings.HasPrefix(content, "负载告警 编辑	") {
+		parts := strings.SplitN(strings.TrimSpace(content[len("负载告警 编辑 "):]), " ", 2)
+		if len(parts) < 2 {
+			return "❌ 格式错误\n\n格式: 负载告警 编辑 ID key=value"
+		}
+		id := parseInt(parts[0])
+		params := parseKeyValueParams(parts[1])
+		params["id"] = id
+		if v, ok := params["threshold"]; ok {
+			params["threshold"] = parseFloat(v.(string))
+		}
+		if v, ok := params["interval"]; ok {
+			params["interval"] = parseInt(v.(string))
+		}
+		if v, ok := params["enabled"]; ok {
+			params["enabled"] = v.(string) == "true"
+		}
+		err := adminEditLoadAlert(params)
+		if err != nil {
+			return "❌ 编辑失败: " + err.Error()
+		}
+		return "✅ 负载告警规则已更新"
+	}
+
+	// 流量报告 编辑 key=value ...
+	if strings.HasPrefix(content, "流量报告 编辑 ") || strings.HasPrefix(content, "流量报告 编辑	") {
+		paramStr := strings.TrimSpace(content[len("流量报告 编辑 "):])
+		params := parseKeyValueParams(paramStr)
+		if v, ok := params["enabled"]; ok {
+			params["enabled"] = v.(string) == "true"
+		}
+		if v, ok := params["interval"]; ok {
+			params["interval"] = parseInt(v.(string))
+		}
+		err := adminEditTrafficReport(params)
+		if err != nil {
+			return "❌ 编辑失败: " + err.Error()
+		}
+		return "✅ 流量报告配置已更新"
+	}
+
+	// Ping添加 name=xxx type=http target=xxx interval=60
+	if strings.HasPrefix(content, "Ping添加 ") || strings.HasPrefix(content, "ping添加 ") {
+		paramStr := strings.TrimSpace(content[len("Ping添加 "):])
+		if strings.HasPrefix(lower, "ping添加 ") {
+			paramStr = strings.TrimSpace(content[len("ping添加 "):])
+		}
+		params := parseKeyValueParams(paramStr)
+		if _, ok := params["name"]; !ok {
+			return "❌ 缺少必填参数: name\n\n格式: Ping添加 name=任务名 type=http target=https://example.com interval=60"
+		}
+		if v, ok := params["interval"]; ok {
+			params["interval"] = parseInt(v.(string))
+		}
+		if v, ok := params["default_on"]; ok {
+			params["default_on"] = v.(string) == "true"
+		}
+		if v, ok := params["clients"]; ok {
+			params["clients"] = strings.Split(v.(string), ",")
+		}
+		err := adminAddPingTask(params)
+		if err != nil {
+			return "❌ 添加失败: " + err.Error()
+		}
+		return fmt.Sprintf("✅ Ping任务 '%s' 已添加", params["name"])
+	}
+
+	// Ping编辑 id key=value ...
+	if strings.HasPrefix(content, "Ping编辑 ") || strings.HasPrefix(content, "ping编辑 ") {
+		paramStr := strings.TrimSpace(content[len("Ping编辑 "):])
+		if strings.HasPrefix(lower, "ping编辑 ") {
+			paramStr = strings.TrimSpace(content[len("ping编辑 "):])
+		}
+		parts := strings.SplitN(paramStr, " ", 2)
+		if len(parts) < 2 {
+			return "❌ 格式错误\n\n格式: Ping编辑 ID key=value"
+		}
+		id := parseInt(parts[0])
+		params := parseKeyValueParams(parts[1])
+		if v, ok := params["interval"]; ok {
+			params["interval"] = parseInt(v.(string))
+		}
+		if v, ok := params["default_on"]; ok {
+			params["default_on"] = v.(string) == "true"
+		}
+		if v, ok := params["clients"]; ok {
+			params["clients"] = strings.Split(v.(string), ",")
+		}
+		err := adminEditPingTask(id, params)
+		if err != nil {
+			return "❌ 编辑失败: " + err.Error()
+		}
+		return "✅ Ping任务已更新"
+	}
+
+	// 设置 编辑 key=value ...
+	if strings.HasPrefix(content, "设置 编辑 ") || strings.HasPrefix(content, "设置 编辑	") {
+		paramStr := strings.TrimSpace(content[len("设置 编辑 "):])
+		params := parseKeyValueParams(paramStr)
+		if v, ok := params["record_enabled"]; ok {
+			params["record_enabled"] = v.(string) == "true"
+		}
+		if v, ok := params["private_site"]; ok {
+			params["private_site"] = v.(string) == "true"
+		}
+		if v, ok := params["allow_guest_view_node"]; ok {
+			params["allow_guest_view_node"] = v.(string) == "true"
+		}
+		if v, ok := params["allow_guest_view_stats"]; ok {
+			params["allow_guest_view_stats"] = v.(string) == "true"
+		}
+		if v, ok := params["record_preserve_time"]; ok {
+			params["record_preserve_time"] = parseInt(v.(string))
+		}
+		err := adminEditSettings(params)
+		if err != nil {
+			return "❌ 编辑失败: " + err.Error()
+		}
+		return "✅ 设置已更新"
+	}
+
+	// 执行 command
+	if strings.HasPrefix(content, "执行 ") || strings.HasPrefix(content, "执行	") {
+		command := strings.TrimSpace(content[len("执行 "):])
+		if command == "" {
+			return "❌ 命令不能为空\n\n格式: 执行 ls -la"
+		}
+		result, err := adminExecCommand(command)
+		if err != nil {
+			return "❌ 执行失败: " + err.Error()
+		}
+		return fmt.Sprintf("⚡ 命令执行结果\n\n命令: %s\n\n%s", command, string(result))
+	}
+
+	// 清空记录 type=load before=2024-01-01
+	if strings.HasPrefix(content, "清空记录 ") || strings.HasPrefix(content, "清空记录	") {
+		paramStr := strings.TrimSpace(content[len("清空记录 "):])
+		if paramStr == "" || paramStr == "全部" {
+			err := adminClearAllRecords()
+			if err != nil {
+				return "❌ 清空失败: " + err.Error()
+			}
+			return "✅ 所有记录已清空"
+		}
+		params := parseKeyValueParams(paramStr)
+		err := adminClearRecords(params)
+		if err != nil {
+			return "❌ 清空失败: " + err.Error()
+		}
+		return "✅ 记录已清空"
+	}
+
+	// 删除会话 id
+	if strings.HasPrefix(content, "删除会话 ") || strings.HasPrefix(content, "删除会话	") {
+		id := strings.TrimSpace(content[len("删除会话 "):])
+		if id == "" || id == "全部" {
+			err := adminRemoveAllSessions()
+			if err != nil {
+				return "❌ 删除失败: " + err.Error()
+			}
+			sessMu.Lock()
+			sessToken = ""
+			sessMu.Unlock()
+			return "✅ 所有会话已删除"
+		}
+		err := adminRemoveSession(id)
+		if err != nil {
+			return "❌ 删除失败: " + err.Error()
+		}
+		return fmt.Sprintf("✅ 会话 '%s' 已删除", id)
+	}
+
 	// 默认：尝试匹配节点名
 	ns := searchNodes(content)
 	switch len(ns) {
@@ -967,6 +1323,7 @@ func handleTgAdminClients(chatID int64) {
 			break
 		}
 	}
+	btns = append(btns, []InlineButton{{Text: "➕ 添加客户端", CallbackData: "adm_ca"}})
 	btns = append(btns, []InlineButton{{Text: "🔄 刷新", CallbackData: "adm_cl"}, {Text: "⬅️ 返回", CallbackData: "adm"}})
 	tgSendKB(chatID, txt, btns)
 }
@@ -979,7 +1336,8 @@ func handleTgAdminClientDetail(chatID int64, uuid string) {
 	}
 	txt := fmtAdminClientDetail(client)
 	tgSendKB(chatID, txt, [][]InlineButton{
-		{{Text: "🔑 Token", CallbackData: "adm_ct:" + uuid}, {Text: "🗑 删除", CallbackData: "adm_crm:" + uuid}},
+		{{Text: "✏️ 编辑", CallbackData: "adm_ce:" + uuid}, {Text: "🔑 Token", CallbackData: "adm_ct:" + uuid}},
+		{{Text: "🗑 删除", CallbackData: "adm_crm:" + uuid}},
 		{{Text: "🔄 刷新", CallbackData: "adm_cd:" + uuid}, {Text: "📋 返回列表", CallbackData: "adm_cl"}},
 	})
 }
@@ -1033,6 +1391,7 @@ func handleTgAdminNotifyOffline(chatID int64) {
 	}
 	txt := fmtAdminNotifications(data, "离线通知配置")
 	tgSendKB(chatID, txt, [][]InlineButton{
+		{{Text: "✏️ 编辑配置", CallbackData: "adm_nloe"}},
 		{{Text: "✅ 启用", CallbackData: "adm_nleo"}, {Text: "⏸ 禁用", CallbackData: "adm_nldo"}},
 		{{Text: "🔄 刷新", CallbackData: "adm_nlo"}, {Text: "⬅️ 返回", CallbackData: "adm_no"}},
 	})
@@ -1063,9 +1422,24 @@ func handleTgAdminNotifyLoad(chatID int64) {
 		return
 	}
 	txt := fmtAdminNotifications(data, "负载告警配置")
-	tgSendKB(chatID, txt, [][]InlineButton{
-		{{Text: "🔄 刷新", CallbackData: "adm_nll"}, {Text: "⬅️ 返回", CallbackData: "adm_no"}},
-	})
+
+	// Try to parse alerts for edit/delete buttons
+	var btns [][]InlineButton
+	var alerts []AdminNotificationConfig
+	if json.Unmarshal(data, &alerts) == nil {
+		for i, a := range alerts {
+			btns = append(btns, []InlineButton{
+				{Text: fmt.Sprintf("✏️ %s", a.Name), CallbackData: fmt.Sprintf("adm_nle:%d", a.ID)},
+				{Text: "🗑", CallbackData: fmt.Sprintf("adm_nld:%d", a.ID)},
+			})
+			if i >= 8 {
+				break
+			}
+		}
+	}
+	btns = append(btns, []InlineButton{{Text: "➕ 添加规则", CallbackData: "adm_nla"}})
+	btns = append(btns, []InlineButton{{Text: "🔄 刷新", CallbackData: "adm_nll"}, {Text: "⬅️ 返回", CallbackData: "adm_no"}})
+	tgSendKB(chatID, txt, btns)
 }
 
 func handleTgAdminNotifyTraffic(chatID int64) {
@@ -1076,6 +1450,7 @@ func handleTgAdminNotifyTraffic(chatID int64) {
 	}
 	txt := fmtAdminNotifications(data, "流量报告配置")
 	tgSendKB(chatID, txt, [][]InlineButton{
+		{{Text: "✏️ 编辑配置", CallbackData: "adm_nlte"}},
 		{{Text: "✅ 启用", CallbackData: "adm_nlet"}, {Text: "⏸ 禁用", CallbackData: "adm_nldt"}},
 		{{Text: "🔄 刷新", CallbackData: "adm_nlt"}, {Text: "⬅️ 返回", CallbackData: "adm_no"}},
 	})
@@ -1123,12 +1498,14 @@ func handleTgAdminPingTasks(chatID int64) {
 	var btns [][]InlineButton
 	for _, t := range tasks {
 		btns = append(btns, []InlineButton{
-			{Text: fmt.Sprintf("🗑 删除 #%d %s", t.ID, t.Name), CallbackData: fmt.Sprintf("adm_ptd:%d", t.ID)},
+			{Text: fmt.Sprintf("✏️ #%d %s", t.ID, t.Name), CallbackData: fmt.Sprintf("adm_pte:%d", t.ID)},
+			{Text: "🗑", CallbackData: fmt.Sprintf("adm_ptd:%d", t.ID)},
 		})
 		if len(btns) >= 10 {
 			break
 		}
 	}
+	btns = append(btns, []InlineButton{{Text: "➕ 添加任务", CallbackData: "adm_pta"}})
 	btns = append(btns, []InlineButton{{Text: "🔄 刷新", CallbackData: "adm_pt"}, {Text: "⬅️ 返回", CallbackData: "adm"}})
 	tgSendKB(chatID, s.String(), btns)
 }
@@ -1162,6 +1539,7 @@ func handleTgAdminTasks(chatID int64) {
 	}
 	txt := fmtAdminTasks(data)
 	tgSendKB(chatID, txt, [][]InlineButton{
+		{{Text: "⚡ 执行命令", CallbackData: "adm_exec"}},
 		{{Text: "🔄 刷新", CallbackData: "adm_tl"}, {Text: "⬅️ 返回", CallbackData: "adm"}},
 	})
 }
@@ -1247,6 +1625,7 @@ func handleTgAdminSettings(chatID int64) {
 	}
 	txt := fmtAdminSettings(settings)
 	tgSendKB(chatID, txt, [][]InlineButton{
+		{{Text: "✏️ 编辑设置", CallbackData: "adm_sete"}},
 		{{Text: "🔄 刷新", CallbackData: "adm_set"}, {Text: "⬅️ 返回", CallbackData: "adm"}},
 	})
 }
@@ -1259,10 +1638,27 @@ func handleTgAdminSessions(chatID int64) {
 		return
 	}
 	txt := fmtAdminSessions(data)
-	tgSendKB(chatID, txt, [][]InlineButton{
-		{{Text: "🗑 清除所有会话", CallbackData: "adm_sey"}},
-		{{Text: "🔄 刷新", CallbackData: "adm_sess"}, {Text: "⬅️ 返回", CallbackData: "adm"}},
-	})
+
+	var btns [][]InlineButton
+	// Try to parse sessions for delete buttons
+	var sessions []AdminSession
+	if json.Unmarshal(data, &sessions) == nil {
+		for i, sess := range sessions {
+			if i >= 8 {
+				break
+			}
+			name := sess.Username
+			if name == "" {
+				name = fmt.Sprintf("User#%d", sess.UserID)
+			}
+			btns = append(btns, []InlineButton{
+				{Text: fmt.Sprintf("🗑 %s", name), CallbackData: fmt.Sprintf("adm_sessd:%s", sess.ID)},
+			})
+		}
+	}
+	btns = append(btns, []InlineButton{{Text: "🗑 清除所有会话", CallbackData: "adm_sey"}})
+	btns = append(btns, []InlineButton{{Text: "🔄 刷新", CallbackData: "adm_sess"}, {Text: "⬅️ 返回", CallbackData: "adm"}})
+	tgSendKB(chatID, txt, btns)
 }
 
 func handleTgAdminRemoveAllSessionsConfirm(chatID int64) {
@@ -1300,4 +1696,528 @@ func handleTgAdminClearAllRecords(chatID int64) {
 		return
 	}
 	tgSendKB(chatID, "✅ 所有记录已清空", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm"}}})
+}
+
+// ============================================================
+// 1. Client Management - Add Client
+// ============================================================
+
+func handleTgAdminClientAddForm(chatID int64) {
+	tgSendKB(chatID, "➕ *添加客户端*\n\n"+
+		"请按以下格式发送参数 (key=value, 每行一个):\n\n"+
+		"```\n"+
+		"name=节点名称\n"+
+		"region=区域\n"+
+		"group=分组\n"+
+		"weight=0\n"+
+		"hidden=false\n"+
+		"```\n\n"+
+		"必填参数: name\n"+
+		"可选参数: region, group, tags, weight, hidden, price, currency, billing_cycle, public_remark, traffic_limit, traffic_limit_type",
+		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_cl"}}})
+}
+
+func handleTgAdminClientAddSubmit(chatID int64, param string) {
+	params := parseKeyValueParams(param)
+	if _, ok := params["name"]; !ok {
+		tgSend(chatID, "❌ 缺少必填参数: name")
+		return
+	}
+	// Convert types
+	if v, ok := params["weight"]; ok {
+		params["weight"] = parseFloat(v.(string))
+	}
+	if v, ok := params["hidden"]; ok {
+		params["hidden"] = v.(string) == "true"
+	}
+	if v, ok := params["price"]; ok {
+		params["price"] = parseFloat(v.(string))
+	}
+	if v, ok := params["billing_cycle"]; ok {
+		params["billing_cycle"] = parseInt(v.(string))
+	}
+	if v, ok := params["traffic_limit"]; ok {
+		params["traffic_limit"] = parseUint64(v.(string))
+	}
+	if v, ok := params["auto_renewal"]; ok {
+		params["auto_renewal"] = v.(string) == "true"
+	}
+
+	err := adminAddClient(params)
+	if err != nil {
+		tgSend(chatID, "❌ 添加失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, fmt.Sprintf("✅ 客户端 '%s' 已添加", params["name"]),
+		[][]InlineButton{{{Text: "📋 返回列表", CallbackData: "adm_cl"}}})
+}
+
+// ============================================================
+// 2. Client Management - Edit Client
+// ============================================================
+
+func handleTgAdminClientEditForm(chatID int64, uuid string) {
+	client, err := adminGetClient(uuid)
+	if err != nil {
+		tgSend(chatID, "❌ 获取客户端失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, fmt.Sprintf("✏️ *编辑客户端: %s*\n\n"+
+		"当前信息:\n"+
+		"name=%s\nregion=%s\ngroup=%s\nweight=%d\nhidden=%v\n"+
+		"tags=%s\npublic_remark=%s\n\n"+
+		"请发送要修改的参数 (key=value, 每行一个):\n"+
+		"可修改: name, region, group, tags, weight, hidden, price, currency, billing_cycle, public_remark, traffic_limit, traffic_limit_type",
+		client.Name, client.Name, client.Region, client.Group, client.Weight, client.Hidden,
+		client.Tags, client.PublicRemark),
+		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_cd:" + uuid}}})
+}
+
+func handleTgAdminClientEditSubmit(chatID int64, param string) {
+	// param format: uuid|key1=val1\nkey2=val2
+	parts := strings.SplitN(param, "|", 2)
+	if len(parts) < 2 {
+		tgSend(chatID, "❌ 参数格式错误")
+		return
+	}
+	uuid := parts[0]
+	params := parseKeyValueParams(parts[1])
+
+	// Convert types
+	if v, ok := params["weight"]; ok {
+		params["weight"] = parseFloat(v.(string))
+	}
+	if v, ok := params["hidden"]; ok {
+		params["hidden"] = v.(string) == "true"
+	}
+	if v, ok := params["price"]; ok {
+		params["price"] = parseFloat(v.(string))
+	}
+	if v, ok := params["billing_cycle"]; ok {
+		params["billing_cycle"] = parseInt(v.(string))
+	}
+	if v, ok := params["traffic_limit"]; ok {
+		params["traffic_limit"] = parseUint64(v.(string))
+	}
+	if v, ok := params["auto_renewal"]; ok {
+		params["auto_renewal"] = v.(string) == "true"
+	}
+
+	err := adminEditClient(uuid, params)
+	if err != nil {
+		tgSend(chatID, "❌ 编辑失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, "✅ 客户端已更新",
+		[][]InlineButton{{{Text: "📋 返回详情", CallbackData: "adm_cd:" + uuid}}})
+}
+
+// ============================================================
+// 3. Notification - Edit Offline Notification
+// ============================================================
+
+func handleTgAdminNotifyOfflineEdit(chatID int64) {
+	tgSendKB(chatID, "✏️ *编辑离线通知配置*\n\n"+
+		"请按以下格式发送参数:\n\n"+
+		"```\n"+
+		"enabled=true\n"+
+		"interval=300\n"+
+		"```\n\n"+
+		"可修改参数: enabled, interval, type",
+		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlo"}}})
+}
+
+// ============================================================
+// 4. Notification - Load Alert Add
+// ============================================================
+
+func handleTgAdminLoadAlertAddForm(chatID int64) {
+	tgSendKB(chatID, "➕ *添加负载告警规则*\n\n"+
+		"请按以下格式发送参数:\n\n"+
+		"```\n"+
+		"name=规则名称\n"+
+		"type=cpu\n"+
+		"threshold=80\n"+
+		"interval=300\n"+
+		"enabled=true\n"+
+		"```\n\n"+
+		"type可选: cpu, memory, disk, network, load\n"+
+		"threshold: 告警阈值",
+		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nll"}}})
+}
+
+func handleTgAdminLoadAlertAddSubmit(chatID int64, param string) {
+	params := parseKeyValueParams(param)
+	if _, ok := params["name"]; !ok {
+		tgSend(chatID, "❌ 缺少必填参数: name")
+		return
+	}
+	if v, ok := params["threshold"]; ok {
+		params["threshold"] = parseFloat(v.(string))
+	}
+	if v, ok := params["interval"]; ok {
+		params["interval"] = parseInt(v.(string))
+	}
+	if v, ok := params["enabled"]; ok {
+		params["enabled"] = v.(string) == "true"
+	}
+
+	err := adminAddLoadAlert(params)
+	if err != nil {
+		tgSend(chatID, "❌ 添加失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, fmt.Sprintf("✅ 负载告警规则 '%s' 已添加", params["name"]),
+		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nll"}}})
+}
+
+// ============================================================
+// 5. Notification - Load Alert Delete
+// ============================================================
+
+func handleTgAdminLoadAlertDeleteConfirm(chatID int64, idStr string) {
+	tgSendKB(chatID, fmt.Sprintf("⚠️ *确认删除负载告警规则 #%s?*\n\n此操作不可撤销!", idStr),
+		[][]InlineButton{
+			{{Text: "✅ 确认删除", CallbackData: "adm_nldy:" + idStr}, {Text: "❌ 取消", CallbackData: "adm_nll"}},
+		})
+}
+
+func handleTgAdminLoadAlertDelete(chatID int64, idStr string) {
+	id := parseInt(idStr)
+	err := adminDeleteLoadAlert(map[string]interface{}{"id": id})
+	if err != nil {
+		tgSend(chatID, "❌ 删除失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, "✅ 负载告警规则已删除", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nll"}}})
+}
+
+// ============================================================
+// 6. Notification - Load Alert Edit
+// ============================================================
+
+func handleTgAdminLoadAlertEditForm(chatID int64, idStr string) {
+	tgSendKB(chatID, fmt.Sprintf("✏️ *编辑负载告警规则 #%s*\n\n"+
+		"请按以下格式发送要修改的参数:\n\n"+
+		"```\n"+
+		"name=规则名称\n"+
+		"threshold=80\n"+
+		"interval=300\n"+
+		"enabled=true\n"+
+		"```", idStr),
+		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nll"}}})
+}
+
+func handleTgAdminLoadAlertEditSubmit(chatID int64, param string) {
+	parts := strings.SplitN(param, "|", 2)
+	if len(parts) < 2 {
+		tgSend(chatID, "❌ 参数格式错误")
+		return
+	}
+	id := parseInt(parts[0])
+	params := parseKeyValueParams(parts[1])
+	params["id"] = id
+
+	if v, ok := params["threshold"]; ok {
+		params["threshold"] = parseFloat(v.(string))
+	}
+	if v, ok := params["interval"]; ok {
+		params["interval"] = parseInt(v.(string))
+	}
+	if v, ok := params["enabled"]; ok {
+		params["enabled"] = v.(string) == "true"
+	}
+
+	err := adminEditLoadAlert(params)
+	if err != nil {
+		tgSend(chatID, "❌ 编辑失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, "✅ 负载告警规则已更新", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nll"}}})
+}
+
+// ============================================================
+// 7. Notification - Traffic Report Edit
+// ============================================================
+
+func handleTgAdminTrafficReportEdit(chatID int64) {
+	tgSendKB(chatID, "✏️ *编辑流量报告配置*\n\n"+
+		"请按以下格式发送参数:\n\n"+
+		"```\n"+
+		"enabled=true\n"+
+		"interval=86400\n"+
+		"type=daily\n"+
+		"```\n\n"+
+		"type可选: daily, weekly, monthly",
+		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlt"}}})
+}
+
+// ============================================================
+// 8. Ping Task - Add
+// ============================================================
+
+func handleTgAdminPingTaskAddForm(chatID int64) {
+	tgSendKB(chatID, "➕ *添加Ping任务*\n\n"+
+		"请按以下格式发送参数:\n\n"+
+		"```\n"+
+		"name=任务名称\n"+
+		"type=http\n"+
+		"target=https://example.com\n"+
+		"interval=60\n"+
+		"default_on=true\n"+
+		"```\n\n"+
+		"type可选: http, tcp, ping\n"+
+		"clients=client1,client2 (可选，逗号分隔)",
+		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_pt"}}})
+}
+
+func handleTgAdminPingTaskAddSubmit(chatID int64, param string) {
+	params := parseKeyValueParams(param)
+	if _, ok := params["name"]; !ok {
+		tgSend(chatID, "❌ 缺少必填参数: name")
+		return
+	}
+	if v, ok := params["interval"]; ok {
+		params["interval"] = parseInt(v.(string))
+	}
+	if v, ok := params["default_on"]; ok {
+		params["default_on"] = v.(string) == "true"
+	}
+	if v, ok := params["clients"]; ok {
+		params["clients"] = strings.Split(v.(string), ",")
+	}
+
+	err := adminAddPingTask(params)
+	if err != nil {
+		tgSend(chatID, "❌ 添加失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, fmt.Sprintf("✅ Ping任务 '%s' 已添加", params["name"]),
+		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_pt"}}})
+}
+
+// ============================================================
+// 9. Ping Task - Edit
+// ============================================================
+
+func handleTgAdminPingTaskEditForm(chatID int64, idStr string) {
+	tgSendKB(chatID, fmt.Sprintf("✏️ *编辑Ping任务 #%s*\n\n"+
+		"请按以下格式发送要修改的参数:\n\n"+
+		"```\n"+
+		"name=任务名称\n"+
+		"interval=60\n"+
+		"default_on=true\n"+
+		"```", idStr),
+		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_pt"}}})
+}
+
+func handleTgAdminPingTaskEditSubmit(chatID int64, param string) {
+	parts := strings.SplitN(param, "|", 2)
+	if len(parts) < 2 {
+		tgSend(chatID, "❌ 参数格式错误")
+		return
+	}
+	id := parseInt(parts[0])
+	params := parseKeyValueParams(parts[1])
+
+	if v, ok := params["interval"]; ok {
+		params["interval"] = parseInt(v.(string))
+	}
+	if v, ok := params["default_on"]; ok {
+		params["default_on"] = v.(string) == "true"
+	}
+	if v, ok := params["clients"]; ok {
+		params["clients"] = strings.Split(v.(string), ",")
+	}
+
+	err := adminEditPingTask(id, params)
+	if err != nil {
+		tgSend(chatID, "❌ 编辑失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, "✅ Ping任务已更新", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_pt"}}})
+}
+
+// ============================================================
+// 10. Settings - Edit
+// ============================================================
+
+func handleTgAdminSettingsEditForm(chatID int64) {
+	settings, err := adminGetSettings()
+	if err != nil {
+		tgSend(chatID, "❌ 获取设置失败: "+err.Error())
+		return
+	}
+	current := fmtAdminSettings(settings)
+	tgSendKB(chatID, current+"\n\n"+
+		"✏️ *编辑设置*\n\n"+
+		"请按以下格式发送要修改的参数:\n\n"+
+		"```\n"+
+		"sitename=站点名称\n"+
+		"description=站点描述\n"+
+		"theme=default\n"+
+		"record_enabled=true\n"+
+		"private_site=false\n"+
+		"allow_guest_view_node=true\n"+
+		"allow_guest_view_stats=true\n"+
+		"record_preserve_time=7\n"+
+		"```",
+		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_set"}}})
+}
+
+func handleTgAdminSettingsEditSubmit(chatID int64, param string) {
+	params := parseKeyValueParams(param)
+	// Convert types
+	if v, ok := params["record_enabled"]; ok {
+		params["record_enabled"] = v.(string) == "true"
+	}
+	if v, ok := params["private_site"]; ok {
+		params["private_site"] = v.(string) == "true"
+	}
+	if v, ok := params["allow_guest_view_node"]; ok {
+		params["allow_guest_view_node"] = v.(string) == "true"
+	}
+	if v, ok := params["allow_guest_view_stats"]; ok {
+		params["allow_guest_view_stats"] = v.(string) == "true"
+	}
+	if v, ok := params["record_preserve_time"]; ok {
+		params["record_preserve_time"] = parseInt(v.(string))
+	}
+
+	err := adminEditSettings(params)
+	if err != nil {
+		tgSend(chatID, "❌ 编辑失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, "✅ 设置已更新", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_set"}}})
+}
+
+// ============================================================
+// 11. Remote Tasks - Execute Command
+// ============================================================
+
+func handleTgAdminExecCommandForm(chatID int64) {
+	tgSendKB(chatID, "⚡ *执行远程命令*\n\n"+
+		"⚠️ 警告: 此命令将在所有客户端上执行!\n\n"+
+		"请输入要执行的命令:",
+		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_tl"}}})
+}
+
+func handleTgAdminExecCommandSubmit(chatID int64, command string) {
+	if command == "" {
+		tgSend(chatID, "❌ 命令不能为空")
+		return
+	}
+	result, err := adminExecCommand(command)
+	if err != nil {
+		tgSend(chatID, "❌ 执行失败: "+err.Error())
+		return
+	}
+	// Format result
+	var pretty interface{}
+	if json.Unmarshal(result, &pretty) == nil {
+		if formatted, err := json.MarshalIndent(pretty, "", "  "); err == nil {
+			txt := fmt.Sprintf("⚡ *命令执行结果*\n\n命令: `%s`\n\n```\\n%s\\n```", command, string(formatted))
+			if len(txt) > 4000 {
+				txt = txt[:4000] + "...```"
+			}
+			tgSendKB(chatID, txt, [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_tl"}}})
+			return
+		}
+	}
+	tgSendKB(chatID, fmt.Sprintf("⚡ *命令执行结果*\n\n命令: `%s`\n\n%s", command, string(result)),
+		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_tl"}}})
+}
+
+// ============================================================
+// 12. Record Management - Clear Specific Records
+// ============================================================
+
+func handleTgAdminClearRecordsForm(chatID int64) {
+	tgSendKB(chatID, "🗑 *清空特定记录*\n\n"+
+		"请按以下格式发送参数:\n\n"+
+		"```\n"+
+		"type=load\n"+
+		"client=uuid\n"+
+		"before=2024-01-01\n"+
+		"```\n\n"+
+		"type可选: load, ping, task\n"+
+		"client: 可选，指定客户端UUID\n"+
+		"before: 可选，清除此日期之前的记录",
+		[][]InlineButton{
+			{{Text: "🗑 清空所有记录", CallbackData: "adm_rec"}},
+			{{Text: "⬅️ 返回", CallbackData: "adm"}},
+		})
+}
+
+func handleTgAdminClearRecordsSubmit(chatID int64, param string) {
+	params := parseKeyValueParams(param)
+	err := adminClearRecords(params)
+	if err != nil {
+		tgSend(chatID, "❌ 清空失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, "✅ 记录已清空", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm"}}})
+}
+
+// ============================================================
+// 13. Session Management - Remove Specific Session
+// ============================================================
+
+func handleTgAdminRemoveSessionConfirm(chatID int64, id string) {
+	tgSendKB(chatID, fmt.Sprintf("⚠️ *确认删除会话 #%s?*\n\n此操作将使该会话失效!", id),
+		[][]InlineButton{
+			{{Text: "✅ 确认删除", CallbackData: "adm_sessdy:" + id}, {Text: "❌ 取消", CallbackData: "adm_sess"}},
+		})
+}
+
+func handleTgAdminRemoveSession(chatID int64, id string) {
+	err := adminRemoveSession(id)
+	if err != nil {
+		tgSend(chatID, "❌ 删除失败: "+err.Error())
+		return
+	}
+	// If we removed our own session, clear cached token
+	sessMu.Lock()
+	sessToken = ""
+	sessMu.Unlock()
+	tgSendKB(chatID, "✅ 会话已删除", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_sess"}}})
+}
+
+// ============================================================
+// Utility functions for parameter parsing
+// ============================================================
+
+func parseKeyValueParams(s string) map[string]interface{} {
+	params := make(map[string]interface{})
+	lines := strings.Split(s, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			params[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+		}
+	}
+	return params
+}
+
+func parseFloat(s string) float64 {
+	var f float64
+	fmt.Sscanf(s, "%f", &f)
+	return f
+}
+
+func parseInt(s string) int {
+	var i int
+	fmt.Sscanf(s, "%d", &i)
+	return i
+}
+
+func parseUint64(s string) uint64 {
+	var u uint64
+	fmt.Sscanf(s, "%d", &u)
+	return u
 }
