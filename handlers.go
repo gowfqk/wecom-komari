@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Telegram
@@ -571,9 +572,18 @@ func wecomCallbackHandler(w http.ResponseWriter, r *http.Request) {
 			reply := processWecomMsg(msg.Content)
 			if reply != "" {
 				logger.Printf("Reply to %s: %s", msg.FromUserName, reply)
+				w.Header().Set("Content-Type", "application/xml")
+				w.Write([]byte(fmt.Sprintf(
+					"<xml><ToUserName><![CDATA[%s]]></ToUserName>"+
+						"<FromUserName><![CDATA[%s]]></FromUserName>"+
+						"<CreateTime>%d</CreateTime>"+
+						"<MsgType><![CDATA[text]]></MsgType>"+
+						"<Content><![CDATA[%s]]></Content></xml>",
+					msg.FromUserName, msg.ToUserName, time.Now().Unix(), reply)))
+				return
 			}
 		}
-		w.WriteHeader(200)
+		w.Write([]byte("success"))
 	default:
 		w.WriteHeader(405)
 	}
