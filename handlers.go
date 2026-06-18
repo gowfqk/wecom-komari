@@ -94,6 +94,13 @@ func handleTgMsg(m *TgMsg) {
 	// Check for pending user state (multi-step operations)
 	state := getUserState(chatID)
 	if state != "" {
+		// Cancel/exit mechanism — clear state and notify user
+		lower := strings.ToLower(txt)
+		if lower == "取消" || lower == "cancel" || lower == "退出" || lower == "q" || lower == "exit" {
+			clearUserState(chatID)
+			tgSend(chatID, "🚫 已取消操作")
+			return
+		}
 		clearUserState(chatID)
 		switch {
 		case state == "add_client":
@@ -1842,7 +1849,7 @@ func handleTgAdminClientAddForm(chatID int64) {
 		"```\n名称=节点名称\n区域=🇨🇳\n分组=国内\n权重=0\n隐藏=false\n```\n\n"+
 		"✅ *必填:* 名称\n"+
 		"💡 *可选:* 区域, 分组, 标签, 权重, 隐藏, 价格, 货币, 计费周期, 备注, 流量限制, 流量限制类型\n\n"+
-		"⚠️ 只需填写要设置的参数，其他使用默认值",
+		"⚠️ 只需填写要设置的参数，其他使用默认值\n\n💡 随时输入 `取消` 退出",
 		[][]InlineButton{{{Text: "❌ 取消", CallbackData: "adm_cl"}}})
 }
 
@@ -1903,7 +1910,7 @@ func handleTgAdminClientEditForm(chatID int64, uuid string) {
 		"  权重 | 隐藏 | 价格 | 货币\n"+
 		"  计费周期 | 备注\n"+
 		"  流量限制 | 流量限制类型\n\n"+
-		"⚠️ 只需填写要修改的参数，其他保持不变",
+		"⚠️ 只需填写要修改的参数，其他保持不变\n\n💡 随时输入 `取消` 退出",
 		client.Name, client.Name, client.Region, client.Group, client.Weight, client.Hidden,
 		client.Tags, client.PublicRemark),
 		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_cd:" + uuid}}})
@@ -1960,7 +1967,7 @@ func handleTgAdminNotifyOfflineEdit(chatID int64) {
 		"enabled=true\n"+
 		"interval=300\n"+
 		"```\n\n"+
-		"可修改参数: enabled, interval, type",
+		"可修改参数: enabled, interval, type\n\n💡 随时输入 `取消` 退出",
 		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlo"}}})
 }
 
@@ -1996,7 +2003,7 @@ func handleTgAdminLoadAlertAddForm(chatID int64) {
 		"enabled=true\n"+
 		"```\n\n"+
 		"type可选: cpu, memory, disk, network, load\n"+
-		"threshold: 告警阈值",
+		"threshold: 告警阈值\n\n💡 随时输入 `取消` 退出",
 		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nll"}}})
 }
 
@@ -2104,7 +2111,7 @@ func handleTgAdminTrafficReportEdit(chatID int64) {
 		"interval=86400\n"+
 		"type=daily\n"+
 		"```\n\n"+
-		"type可选: daily, weekly, monthly",
+		"type可选: daily, weekly, monthly\n\n💡 随时输入 `取消` 退出",
 		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlt"}}})
 }
 
@@ -2140,7 +2147,7 @@ func handleTgAdminPingTaskAddForm(chatID int64) {
 		"default_on=true\n"+
 		"```\n\n"+
 		"type可选: http, tcp, ping\n"+
-		"clients=client1,client2 (可选，逗号分隔)",
+		"clients=client1,client2 (可选，逗号分隔)\n\n💡 随时输入 `取消` 退出",
 		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_pt"}}})
 }
 
@@ -2235,8 +2242,8 @@ func handleTgAdminSettingsEditForm(chatID int64) {
 		"private_site=false\n"+
 		"allow_guest_view_node=true\n"+
 		"allow_guest_view_stats=true\n"+
-		"record_preserve_time=7\n"+
-		"```",
+		"record_preserve_time=7\n" +
+				"```\n\n💡 随时输入 `取消` 退出",
 		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_set"}}})
 }
 
@@ -2275,7 +2282,7 @@ func handleTgAdminExecCommandForm(chatID int64) {
 	setUserState(chatID, "exec_command")
 	tgSendKB(chatID, "⚡ *执行远程命令*\n\n"+
 		"⚠️ 警告: 此命令将在所有客户端上执行!\n\n"+
-		"请输入要执行的命令:",
+		"请输入要执行的命令:\n\n💡 随时输入 `取消` 退出",
 		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_tl"}}})
 }
 
@@ -2320,7 +2327,7 @@ func handleTgAdminClearRecordsForm(chatID int64) {
 		"```\n\n"+
 		"type可选: load, ping, task\n"+
 		"client: 可选，指定客户端UUID\n"+
-		"before: 可选，清除此日期之前的记录",
+		"before: 可选，清除此日期之前的记录\n\n💡 随时输入 `取消` 退出",
 		[][]InlineButton{
 			{{Text: "🗑 清空所有记录", CallbackData: "adm_rec"}},
 			{{Text: "⬅️ 返回", CallbackData: "adm"}},
