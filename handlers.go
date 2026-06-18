@@ -1,7 +1,11 @@
 package main
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/sha1"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
@@ -540,6 +544,52 @@ func mailHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // WeChat Work callback
+
+
+func verifyWecomSignature(token, timestamp, nonce, encryptMsg, msgSignature string) bool {
+	strs := sort.StringSlice{token, timestamp, nonce, encryptMsg}
+	sort.Strings(strs)
+	str := strings.Join(strs, "")
+	hash := sha1.Sum([]byte(str))
+	return fmt.Sprintf("%x", hash) == msgSignature
+}
+
+func decryptWecomMsg(encryptMsg string) (string, error) {
+	if WecomAESKey == "" {
+		return "", fmt.Errorf("WECOM_ENCODING_AES_KEY未配置")
+	}
+	encryptedBytes, err := base64.StdEncoding.DecodeString(encryptMsg)
+	if err != nil {
+		return "", fmt.Errorf("Base64解码失败: %v", err)
+	}
+	aesKey, err := base64.StdEncoding.DecodeString(WecomAESKey + "=")
+	if err != nil {
+		return "", fmt.Errorf("AES Key解码失败: %v", err)
+	}
+	if len(aesKey) != 32 {
+		return "", fmt.Errorf("AES Key长度错误: 期望32字节, 实际%d字节", len(aesKey))
+	}
+	block, err := aes.NewCipher(aesKey)
+	if err != nil {
+		return "", fmt.Errorf("创建AES cipher失败: %v", err)
+	}
+	if len(encryptedBytes)%block.BlockSize() != 0 {
+		return "", fmt.Errorf("密文长度不是块大小的整数倍")
+	}
+	iv := aesKey[:16]
+	decrypted := make([]byte, len(encryptedBytes))
+	mode := cipher.NewCBCDecrypter(block, iv)
+	mode.CryptBlocks(decrypted, encryptedBytes)
+	if len(decrypted) < 20 {
+		return "", fmt.Errorf("解密后数据过短")
+	}
+	msgLen := binary.BigEndian.Uint32(decrypted[16:20])
+	if int(msgLen) < 0 || 20+int(msgLen) > len(decrypted) {
+		return "", fmt.Errorf("消息长度无效")
+	}
+	return string(decrypted[20 : 20+msgLen]), nil
+}
+
 type WecomCallbackXML struct {
 	XMLName      xml.Name `xml:"xml"`
 	ToUserName   string   `xml:"ToUserName"`
@@ -548,6 +598,7 @@ type WecomCallbackXML struct {
 	MsgType      string   `xml:"MsgType"`
 	Content      string   `xml:"Content"`
 	MsgId        int64    `xml:"MsgId"`
+	Encrypt      string   `xml:"Encrypt"`
 }
 
 func wecomCallbackHandler(w http.ResponseWriter, r *http.Request) {
@@ -566,12 +617,43 @@ func wecomCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	case "POST":
 		body, _ := io.ReadAll(r.Body)
+		logger.Printf("[WecomCallback] Raw body: %s", string(body))
 		var msg WecomCallbackXML
-		xml.Unmarshal(body, &msg)
-		if msg.MsgType == "text" && msg.Content != "" {
-			reply := processWecomMsg(msg.Content)
+		if err := xml.Unmarshal(body, &msg); err != nil {
+			logger.Printf("[WecomCallback] XML parse error: %v", err)
+			w.Write([]byte("success"))
+			return
+		}
+		logger.Printf("[WecomCallback] From=%s To=%s Type=%s Encrypt=%s", msg.FromUserName, msg.ToUserName, msg.MsgType, msg.Encrypt[:min(50, len(msg.Encrypt))])
+		content := msg.Content
+		if msg.Encrypt != "" {
+			q := r.URL.Query()
+			msgSignature := q.Get("msg_signature")
+			timestamp := q.Get("timestamp")
+			nonce := q.Get("nonce")
+			logger.Printf("[WecomCallback] Encrypted mode, verifying signature...")
+			if !verifyWecomSignature(WecomToken, timestamp, nonce, msg.Encrypt, msgSignature) {
+				logger.Printf("[WecomCallback] Signature verification failed")
+				w.WriteHeader(403)
+				return
+			}
+			decrypted, err := decryptWecomMsg(msg.Encrypt)
+			if err != nil {
+				logger.Printf("[WecomCallback] Decrypt failed: %v", err)
+				w.Write([]byte("success"))
+				return
+			}
+			logger.Printf("[WecomCallback] Decrypted: %s", decrypted)
+			var decMsg WecomCallbackXML
+			xml.Unmarshal([]byte(decrypted), &decMsg)
+			content = decMsg.Content
+			logger.Printf("[WecomCallback] Decrypted content: %s", content)
+		}
+		if content != "" {
+			reply := processWecomMsg(content)
+			logger.Printf("[WecomCallback] Reply (len=%d): %s", len(reply), reply[:min(200, len(reply))])
 			if reply != "" {
-				logger.Printf("Reply to %s: %s", msg.FromUserName, reply)
+				logger.Printf("[WecomCallback] Sending reply")
 				w.Header().Set("Content-Type", "application/xml")
 				w.Write([]byte(fmt.Sprintf(
 					"<xml><ToUserName><![CDATA[%s]]></ToUserName>"+
