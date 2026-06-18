@@ -409,10 +409,12 @@ func handleTgNode(chatID int64, uuid string) {
 		return
 	}
 	rt, _ := getNodeRealtime(uuid)
-	tgSendKB(chatID, fmtNodeStatus(n, rt), [][]InlineButton{
+	btns := [][]InlineButton{
+		{{Text: "✏️ 编辑", CallbackData: "adm_ce:" + uuid}, {Text: "🔑 Token", CallbackData: "adm_ct:" + uuid}},
 		{{Text: "📈 历史", CallbackData: "history:" + uuid}, {Text: "🔄 刷新", CallbackData: "node:" + uuid}},
 		{{Text: "📋 返回列表", CallbackData: "cmd:list"}},
-	})
+	}
+	tgSendKB(chatID, fmtNodeStatus(n, rt), btns)
 }
 
 func handleTgCallback(cb *TgCallback) {

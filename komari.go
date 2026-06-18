@@ -839,22 +839,14 @@ func adminRemoveClient(uuid string) error {
 }
 
 func adminGetClientToken(uuid string) (string, error) {
-	data, err := komariAdminGetData("GET", "/api/admin/client/"+uuid+"/token", nil)
+	client, err := adminGetClient(uuid)
 	if err != nil {
 		return "", err
 	}
-	var tokenData struct {
-		Token string `json:"token"`
+	if client.Token != "" {
+		return client.Token, nil
 	}
-	if err := json.Unmarshal(data, &tokenData); err != nil {
-		// Try parsing as plain string
-		var s string
-		if err2 := json.Unmarshal(data, &s); err2 == nil {
-			return s, nil
-		}
-		return string(data), nil
-	}
-	return tokenData.Token, nil
+	return "", fmt.Errorf("token not found (Komari version may not support token API)")
 }
 
 // Notification management - offline

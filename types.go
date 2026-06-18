@@ -48,6 +48,7 @@ type KomariNode struct {
 	Hidden           bool    `json:"hidden"`
 	TrafficLimit     uint64  `json:"traffic_limit"`
 	TrafficLimitType string  `json:"traffic_limit_type"`
+	Token            string  `json:"token,omitempty"`
 	CreatedAt        string  `json:"created_at"`
 	UpdatedAt        string  `json:"updated_at"`
 }
