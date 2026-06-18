@@ -1438,7 +1438,9 @@ func handleTgAdminClientToken(chatID int64, uuid string) {
 		tgSend(chatID, "❌ 获取Token失败: "+err.Error())
 		return
 	}
-	tgSendKB(chatID, fmt.Sprintf("🔑 *客户端 Token*\n\nUUID: `%s`\nToken: `%s`", uuid, token),
+	siteURL := strings.TrimRight(KomariUrl, "/")
+	installCmd := fmt.Sprintf("bash <(curl -sL %s/api/install.sh) --url %s --token %s", siteURL, siteURL, token)
+	tgSendKB(chatID, fmt.Sprintf("🔑 *客户端 Token*\n\nUUID: `%s`\nToken: `%s`\n\n📦 *一键安装命令:*\n```\n%s\n```", uuid, token, installCmd),
 		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_cd:" + uuid}}})
 }
 
