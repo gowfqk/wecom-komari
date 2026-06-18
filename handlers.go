@@ -256,10 +256,13 @@ func handleTgCmdClientAdd(chatID int64, name string) {
 				return
 			}
 			siteURL := strings.TrimRight(KomariUrl, "/")
-			linuxCmd := fmt.Sprintf("wget -qO- https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh | sudo bash -s -- -e %s -t %s", siteURL, token)
+			linuxURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh")
+			winURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1")
+			linuxCmd := fmt.Sprintf("wget -qO- %s | sudo bash -s -- -e %s -t %s", linuxURL, siteURL, token)
+			winCmd := fmt.Sprintf("powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"iwr '%s' -UseBasicParsing -OutFile 'install.ps1'; & '.\\install.ps1' '-e' '%s' '-t' '%s'\"", winURL, siteURL, token)
 			msg := fmt.Sprintf("✅ 客户端 '%s' 已添加\n\nUUID: `%s`\nToken: `%s`\n\n", name, c.UUID, token)
 			msg += "📦 *Linux 一键安装:*\n```\n" + linuxCmd + "\n```\n"
-			msg += fmt.Sprintf("📦 *Windows PowerShell:*\n```\n$env:KOMARI_ENDPOINT='%s'; $env:KOMARI_TOKEN='%s'; irm https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1 | iex\n```\n", siteURL, token)
+			msg += "📦 *Windows PowerShell:*\n```\n" + winCmd + "\n```\n"
 			msg += "📦 *macOS / FreeBSD:*\n手动下载: [GitHub Releases](https://github.com/komari-monitor/komari-agent/releases)"
 			tgSendKB(chatID, msg,
 				[][]InlineButton{{{Text: "📋 查看列表", CallbackData: "adm_cl"}}})
@@ -1482,12 +1485,14 @@ func handleTgAdminClientToken(chatID int64, uuid string) {
 		return
 	}
 	siteURL := strings.TrimRight(KomariUrl, "/")
-	linuxCmd := fmt.Sprintf("wget -qO- https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh | sudo bash -s -- -e %s -t %s", siteURL, token)
+	linuxURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh")
+	winURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1")
+	linuxCmd := fmt.Sprintf("wget -qO- %s | sudo bash -s -- -e %s -t %s", linuxURL, siteURL, token)
+	winCmd := fmt.Sprintf("powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"iwr '%s' -UseBasicParsing -OutFile 'install.ps1'; & '.\\install.ps1' '-e' '%s' '-t' '%s'\"", winURL, siteURL, token)
 	msg := fmt.Sprintf("🔑 *客户端 Token*\n\nUUID: `%s`\nToken: `%s`\n\n", uuid, token)
 	msg += "📦 *Linux 一键安装:*\n```\n" + linuxCmd + "\n```\n"
-	msg += "📦 *Windows PowerShell:*\n```\n$env:KOMARI_ENDPOINT='%s'; $env:KOMARI_TOKEN='%s'; irm https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1 | iex\n```\n"
+	msg += "📦 *Windows PowerShell:*\n```\n" + winCmd + "\n```\n"
 	msg += "📦 *macOS / FreeBSD:*\n手动下载: [GitHub Releases](https://github.com/komari-monitor/komari-agent/releases)"
-	msg = fmt.Sprintf(msg, siteURL, token)
 	tgSendKB(chatID, msg,
 		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_cd:" + uuid}}})
 }

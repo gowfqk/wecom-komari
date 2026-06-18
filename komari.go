@@ -29,6 +29,7 @@ var (
 	TelegramWebhookSec  = envDefault("TELEGRAM_WEBHOOK_SECRET", "")
 	TelegramAllowed     = envDefault("TELEGRAM_ALLOWED_USERS", "")
 	TelegramAPIBase     = envDefault("TELEGRAM_API_BASE", "https://api.telegram.org")
+	GitHubProxy         = envDefault("GITHUB_PROXY", "") // e.g. "https://ghproxy.com/"
 	GetTokenURL         = "https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=%s&corpsecret=%s"
 	SendMsgURL          = "https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=%s"
 	MailSendURL         = "https://qyapi.weixin.qq.com/cgi-bin/exmail/app/compose_send?access_token=%s"
@@ -48,6 +49,19 @@ func envDefault(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// ghURL applies GitHub proxy to a raw.githubusercontent.com URL
+func ghURL(rawURL string) string {
+	if GitHubProxy == "" {
+		return rawURL
+	}
+	// Ensure proxy ends with /
+	proxy := GitHubProxy
+	if proxy[len(proxy)-1] != '/' {
+		proxy += "/"
+	}
+	return proxy + rawURL
 }
 
 func getEnv(key string) (string, bool) {
