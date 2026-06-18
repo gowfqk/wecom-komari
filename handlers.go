@@ -660,6 +660,8 @@ func wecomCallbackHandler(w http.ResponseWriter, r *http.Request) {
 				} else {
 					wd := WecomMsg{ToUser: msg.FromUserName, MsgType: "text", AgentId: WecomAid}
 					wd.Text.Content = reply
+					j, _ := json.Marshal(wd)
+					logger.Printf("[WecomCallback] Sending JSON: %s", string(j))
 					resp, err := httpDo("POST", fmt.Sprintf(SendMsgURL, token), wd, nil)
 					if err != nil {
 						logger.Printf("[WecomCallback] API error: %v", err)
