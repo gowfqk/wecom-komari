@@ -149,8 +149,13 @@ func handleTgMsg(m *TgMsg) {
 }
 
 func handleTgCmd(chatID int64, cmd string) {
-	cmd = strings.Fields(strings.ToLower(cmd))[0]
-	switch cmd {
+	parts := strings.Fields(cmd)
+	command := strings.ToLower(parts[0])
+	args := ""
+	if len(parts) > 1 {
+		args = strings.Join(parts[1:], " ")
+	}
+	switch command {
 	case "start", "help":
 		tgSendKB(chatID, "*Komari 监控 Bot*\n\n"+
 			"/status - 状态概览\n"+
@@ -162,6 +167,7 @@ func handleTgCmd(chatID int64, cmd string) {
 			"/group - 节点分组\n\n"+
 			"*管理命令:*\n"+
 			"/admin - 管理员面板\n"+
+			"/new 名称 - 添加客户端\n"+
 			"/notify - 通知管理\n"+
 			"/ping_admin - Ping任务管理\n"+
 			"/task - 远程任务\n"+
@@ -191,6 +197,8 @@ func handleTgCmd(chatID int64, cmd string) {
 		handleTgGroup(chatID)
 	case "admin":
 		handleTgAdmin(chatID)
+	case "new":
+		handleTgCmdClientAdd(chatID, args)
 	case "notify":
 		handleTgAdminNotify(chatID)
 	case "ping_admin":
@@ -202,8 +210,23 @@ func handleTgCmd(chatID int64, cmd string) {
 	case "settings":
 		handleTgAdminSettings(chatID)
 	default:
-		tgSend(chatID, "未知命令: /"+cmd)
+		tgSend(chatID, "未知命令: /"+command)
 	}
+}
+
+func handleTgCmdClientAdd(chatID int64, name string) {
+	if name == "" {
+		tgSend(chatID, "❌ 请提供客户端名称\n\n用法: /new 名称")
+		return
+	}
+	params := map[string]interface{}{"name": name}
+	err := adminAddClient(params)
+	if err != nil {
+		tgSend(chatID, "❌ 添加失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, fmt.Sprintf("✅ 客户端 '%s' 已添加", name),
+		[][]InlineButton{{{Text: "📋 查看列表", CallbackData: "adm_cl"}}})
 }
 
 func handleTgStatus(chatID int64) {
