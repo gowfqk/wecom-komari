@@ -653,7 +653,7 @@ func wecomCallbackHandler(w http.ResponseWriter, r *http.Request) {
 			reply := processWecomMsg(content)
 			logger.Printf("[WecomCallback] Reply (len=%d): %s", len(reply), reply[:min(200, len(reply))])
 			if reply != "" {
-				logger.Printf("[WecomCallback] Sending reply via API to %s", msg.FromUserName)
+				logger.Printf("[WecomCallback] Sending reply via API to %s, AgentId=%s", msg.FromUserName, WecomAid)
 				token, err := getWecomAccessToken()
 				if err != nil {
 					logger.Printf("[WecomCallback] Get access token failed: %v", err)
