@@ -616,14 +616,12 @@ func wecomCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	case "POST":
 		body, _ := io.ReadAll(r.Body)
-		logger.Printf("[WecomCallback] Raw body: %s", string(body))
 		var msg WecomCallbackXML
 		if err := xml.Unmarshal(body, &msg); err != nil {
 			logger.Printf("[WecomCallback] XML parse error: %v", err)
 			w.Write([]byte("success"))
 			return
 		}
-		logger.Printf("[WecomCallback] From=%s To=%s Type=%s Encrypt=%s", msg.FromUserName, msg.ToUserName, msg.MsgType, msg.Encrypt[:min(50, len(msg.Encrypt))])
 		content := msg.Content
 		if msg.Encrypt != "" {
 			q := r.URL.Query()
@@ -642,7 +640,6 @@ func wecomCallbackHandler(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte("success"))
 				return
 			}
-			logger.Printf("[WecomCallback] Decrypted: %s", decrypted)
 			var decMsg WecomCallbackXML
 			xml.Unmarshal([]byte(decrypted), &decMsg)
 			content = decMsg.Content
@@ -653,20 +650,15 @@ func wecomCallbackHandler(w http.ResponseWriter, r *http.Request) {
 			reply := processWecomMsg(content)
 			logger.Printf("[WecomCallback] Reply (len=%d): %s", len(reply), reply[:min(200, len(reply))])
 			if reply != "" {
-				logger.Printf("[WecomCallback] Sending reply via API to %s, AgentId=%s", msg.FromUserName, WecomAid)
+				logger.Printf("[WecomCallback] Sending reply via API to %s", msg.FromUserName)
 				token, err := getWecomAccessToken()
 				if err != nil {
 					logger.Printf("[WecomCallback] Get access token failed: %v", err)
 				} else {
 					wd := WecomMsg{ToUser: msg.FromUserName, MsgType: "text", AgentId: WecomAid}
 					wd.Text.Content = reply
-					j, _ := json.Marshal(wd)
-					logger.Printf("[WecomCallback] Sending JSON: %s", string(j))
-					resp, err := httpDo("POST", fmt.Sprintf(SendMsgURL, token), wd, nil)
-					if err != nil {
-						logger.Printf("[WecomCallback] API error: %v", err)
-					} else {
-						logger.Printf("[WecomCallback] API response: %s", string(resp))
+					if _, err := httpDo("POST", fmt.Sprintf(SendMsgURL, token), wd, nil); err != nil {
+						logger.Printf("[WecomCallback] Send failed: %v", err)
 					}
 				}
 			}
