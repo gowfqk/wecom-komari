@@ -242,7 +242,7 @@ func handleTgCmdClientAdd(chatID int64, name string) {
 				return
 			}
 			siteURL := strings.TrimRight(KomariUrl, "/")
-			installCmd := fmt.Sprintf("bash <(curl -sL %s/install.sh) %s %s", siteURL, token, siteURL)
+			installCmd := fmt.Sprintf("wget -qO- https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh | sudo bash -s -- -e %s -t %s", siteURL, token)
 			tgSendKB(chatID, fmt.Sprintf("✅ 客户端 '%s' 已添加\n\nUUID: `%s`\nToken: `%s`\n\n📦 *一键安装命令:*\n```\n%s\n```", name, c.UUID, token, installCmd),
 				[][]InlineButton{{{Text: "📋 查看列表", CallbackData: "adm_cl"}}})
 			return
@@ -1462,7 +1462,7 @@ func handleTgAdminClientToken(chatID int64, uuid string) {
 		return
 	}
 	siteURL := strings.TrimRight(KomariUrl, "/")
-	installCmd := fmt.Sprintf("bash <(curl -sL %s/install.sh) %s %s", siteURL, token, siteURL)
+	installCmd := fmt.Sprintf("wget -qO- https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh | sudo bash -s -- -e %s -t %s", siteURL, token)
 	tgSendKB(chatID, fmt.Sprintf("🔑 *客户端 Token*\n\nUUID: `%s`\nToken: `%s`\n\n📦 *一键安装命令:*\n```\n%s\n```", uuid, token, installCmd),
 		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_cd:" + uuid}}})
 }
