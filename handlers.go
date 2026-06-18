@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"time"
 )
 
 // Telegram
@@ -653,16 +652,16 @@ func wecomCallbackHandler(w http.ResponseWriter, r *http.Request) {
 			reply := processWecomMsg(content)
 			logger.Printf("[WecomCallback] Reply (len=%d): %s", len(reply), reply[:min(200, len(reply))])
 			if reply != "" {
-				logger.Printf("[WecomCallback] Sending reply")
-				w.Header().Set("Content-Type", "application/xml")
-				w.Write([]byte(fmt.Sprintf(
-					"<xml><ToUserName><![CDATA[%s]]></ToUserName>"+
-						"<FromUserName><![CDATA[%s]]></FromUserName>"+
-						"<CreateTime>%d</CreateTime>"+
-						"<MsgType><![CDATA[text]]></MsgType>"+
-						"<Content><![CDATA[%s]]></Content></xml>",
-					msg.FromUserName, msg.ToUserName, time.Now().Unix(), reply)))
-				return
+				logger.Printf("[WecomCallback] Sending reply via API to %s", msg.FromUserName)
+				token, err := getWecomAccessToken()
+				if err != nil {
+					logger.Printf("[WecomCallback] Get access token failed: %v", err)
+				} else {
+					wd := WecomMsg{ToUser: msg.FromUserName, MsgType: "text", AgentId: WecomAid}
+					wd.Text.Content = reply
+					httpDo("POST", fmt.Sprintf(SendMsgURL, token), wd, nil)
+					logger.Printf("[WecomCallback] Reply sent via API")
+				}
 			}
 		}
 		w.Write([]byte("success"))
