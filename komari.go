@@ -765,14 +765,16 @@ func komariAdminGetData(method, path string, body interface{}) (json.RawMessage,
 	if err != nil {
 		return nil, err
 	}
+	// Try standard wrapped response first: {"status":"success","data":...}
 	var r KomariAPIResponse
-	if err := json.Unmarshal(b, &r); err != nil {
-		return nil, err
+	if err := json.Unmarshal(b, &r); err == nil && r.Status != "" {
+		if r.Status != "success" {
+			return nil, fmt.Errorf("%s", r.Message)
+		}
+		return r.Data, nil
 	}
-	if r.Status != "success" {
-		return nil, fmt.Errorf("%s", r.Message)
-	}
-	return r.Data, nil
+	// Fallback: raw response (array or object) — return as-is
+	return json.RawMessage(b), nil
 }
 
 // Admin API: parse standard Komari response for action (no data)
@@ -787,13 +789,15 @@ func komariAdminAction(method, path string, body interface{}) error {
 	if err != nil {
 		return err
 	}
+	// Try standard wrapped response first: {"status":"success",...}
 	var r KomariAPIResponse
-	if err := json.Unmarshal(b, &r); err != nil {
-		return err
+	if err := json.Unmarshal(b, &r); err == nil && r.Status != "" {
+		if r.Status != "success" {
+			return fmt.Errorf("%s", r.Message)
+		}
+		return nil
 	}
-	if r.Status != "success" {
-		return fmt.Errorf("%s", r.Message)
-	}
+	// Fallback: raw response — assume success if no error
 	return nil
 }
 
