@@ -84,6 +84,13 @@ func handleTgMsg(m *TgMsg) {
 	chatID := m.Chat.ID
 	txt := strings.TrimSpace(m.Text)
 
+	// Commands always take priority over state input
+	if strings.HasPrefix(txt, "/") {
+		clearUserState(chatID)
+		handleTgCmd(chatID, strings.TrimPrefix(txt, "/"))
+		return
+	}
+
 	// Check for pending user state (multi-step operations)
 	state := getUserState(chatID)
 	if state != "" {
@@ -128,10 +135,6 @@ func handleTgMsg(m *TgMsg) {
 		}
 	}
 
-	if strings.HasPrefix(txt, "/") {
-		handleTgCmd(chatID, strings.TrimPrefix(txt, "/"))
-		return
-	}
 	ns := searchNodes(txt)
 	switch len(ns) {
 	case 1:
@@ -151,6 +154,10 @@ func handleTgMsg(m *TgMsg) {
 func handleTgCmd(chatID int64, cmd string) {
 	parts := strings.Fields(cmd)
 	command := strings.ToLower(parts[0])
+	// Strip @botname suffix (e.g. /help@mybot -> help)
+	if idx := strings.Index(command, "@"); idx > 0 {
+		command = command[:idx]
+	}
 	args := ""
 	if len(parts) > 1 {
 		args = strings.Join(parts[1:], " ")
