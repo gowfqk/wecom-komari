@@ -72,6 +72,15 @@ docker-compose up -d
 - `离线` / `/offline` - 离线节点
 - `排名` / `/rank` - 性能排行
 - `分组` / `/group` - 分组信息
+- `/admin` / `管理` - 管理面板
+- `/admin_clients` / `客户端管理` - 客户端管理
+- `/admin_notify` / `通知管理` - 通知管理
+- `/admin_ping` / `Ping管理` - Ping任务
+- `/admin_tasks` / `远程任务` - 远程任务
+- `/admin_logs` / `日志` - 审计日志
+- `/admin_sessions` / `会话` - 会话管理
+- `/admin_settings` / `设置` - 系统设置
+- `/admin_clear` / `清空记录` - 清空记录
 - 直接输入节点名称 - 查看节点详情
 
 ## Komari 通知转发
