@@ -1831,23 +1831,23 @@ func handleTgAdminClearAllRecords(chatID int64) {
 func handleTgAdminClientAddForm(chatID int64) {
 	setUserState(chatID, "add_client")
 	tgSendKB(chatID, "➕ *添加客户端*\n\n"+
-		"请按以下格式发送参数 (key=value, 每行一个):\n\n"+
+		"请按以下格式发送参数 (每行一个):\n\n"+
 		"```\n"+
-		"name=节点名称\n"+
-		"region=区域\n"+
-		"group=分组\n"+
-		"weight=0\n"+
-		"hidden=false\n"+
+		"名称=节点名称\n"+
+		"区域=区域\n"+
+		"分组=分组\n"+
+		"权重=0\n"+
+		"隐藏=false\n"+
 		"```\n\n"+
-		"必填参数: name\n"+
-		"可选参数: region, group, tags, weight, hidden, price, currency, billing_cycle, public_remark, traffic_limit, traffic_limit_type",
+		"必填参数: 名称\n"+
+		"可选参数: 区域, 分组, 标签, 权重, 隐藏, 价格, 货币, 计费周期, 备注, 流量限制, 流量限制类型",
 		[][]InlineButton{{{Text: "❌ 取消", CallbackData: "adm_cl"}}})
 }
 
 func handleTgAdminClientAddSubmit(chatID int64, param string) {
 	params := parseKeyValueParams(param)
 	if _, ok := params["name"]; !ok {
-		tgSend(chatID, "❌ 缺少必填参数: name")
+		tgSend(chatID, "❌ 缺少必填参数: 名称")
 		return
 	}
 	// Convert types
@@ -1892,10 +1892,10 @@ func handleTgAdminClientEditForm(chatID int64, uuid string) {
 	}
 	tgSendKB(chatID, fmt.Sprintf("✏️ *编辑客户端: %s*\n\n"+
 		"当前信息:\n"+
-		"name=%s\nregion=%s\ngroup=%s\nweight=%d\nhidden=%v\n"+
-		"tags=%s\npublic_remark=%s\n\n"+
-		"请发送要修改的参数 (key=value, 每行一个):\n"+
-		"可修改: name, region, group, tags, weight, hidden, price, currency, billing_cycle, public_remark, traffic_limit, traffic_limit_type",
+		"名称=%s\n区域=%s\n分组=%s\n权重=%d\n隐藏=%v\n"+
+		"标签=%s\n备注=%s\n\n"+
+		"请发送要修改的参数 (每行一个):\n"+
+		"可修改: 名称, 区域, 分组, 标签, 权重, 隐藏, 价格, 货币, 计费周期, 备注, 流量限制, 流量限制类型",
 		client.Name, client.Name, client.Region, client.Group, client.Weight, client.Hidden,
 		client.Tags, client.PublicRemark),
 		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_cd:" + uuid}}})
@@ -2358,6 +2358,21 @@ func handleTgAdminRemoveSession(chatID int64, id string) {
 // ============================================================
 
 func parseKeyValueParams(s string) map[string]interface{} {
+	// Chinese to English parameter name mapping
+	cnToEn := map[string]string{
+		"名称":     "name",
+		"区域":     "region",
+		"分组":     "group",
+		"标签":     "tags",
+		"权重":     "weight",
+		"隐藏":     "hidden",
+		"价格":     "price",
+		"货币":     "currency",
+		"计费周期":   "billing_cycle",
+		"备注":     "public_remark",
+		"流量限制":   "traffic_limit",
+		"流量限制类型": "traffic_limit_type",
+	}
 	params := make(map[string]interface{})
 	lines := strings.Split(s, "\n")
 	for _, line := range lines {
@@ -2367,7 +2382,13 @@ func parseKeyValueParams(s string) map[string]interface{} {
 		}
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) == 2 {
-			params[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+			// Convert Chinese key to English if mapped
+			if en, ok := cnToEn[key]; ok {
+				key = en
+			}
+			params[key] = val
 		}
 	}
 	return params
