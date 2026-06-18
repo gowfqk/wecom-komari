@@ -671,27 +671,32 @@ func wecomCallbackHandler(w http.ResponseWriter, r *http.Request) {
 
 func processWecomMsg(content string) string {
 	content = strings.TrimSpace(content)
-	switch {
-	case content == "帮助" || content == "/help" || content == "help":
+
+	// 精确匹配优先
+	switch content {
+	case "帮助", "help", "?", "菜单", "menu":
 		return "📋 查询命令:\n" +
-			"/status - 节点状态\n" +
-			"/list - 节点列表\n" +
-			"/offline - 离线节点\n" +
-			"/ping - Ping任务\n" +
-			"/rank - 性能排名\n" +
-			"/info - 站点信息\n" +
-			"/group - 分组信息\n\n" +
+			"状态 - 节点状态概览\n" +
+			"列表 - 所有节点列表\n" +
+			"离线 - 离线节点\n" +
+			"Ping - Ping任务\n" +
+			"排名 - 性能排名\n" +
+			"信息 - 站点信息\n" +
+			"分组 - 节点分组\n\n" +
 			"🔧 管理命令:\n" +
-			"/admin - 管理面板\n" +
-			"/admin_clients - 客户端\n" +
-			"/admin_notify - 通知\n" +
-			"/admin_ping - Ping任务\n" +
-			"/admin_tasks - 远程任务\n" +
-			"/admin_logs - 审计日志\n" +
-			"/admin_sessions - 会话\n" +
-			"/admin_settings - 设置\n\n" +
-			"直接输入节点名称查看详情"
-	case content == "状态" || content == "/status" || content == "status":
+			"客户端 - 客户端管理\n" +
+			"通知 - 通知管理\n" +
+			"Ping任务 - Ping任务管理\n" +
+			"远程任务 - 远程任务\n" +
+			"日志 - 审计日志\n" +
+			"会话 - 会话管理\n" +
+			"设置 - 系统设置\n\n" +
+			"📌 带参数命令:\n" +
+			"详情 节点名 - 查看节点详情\n" +
+			"客户端 Token 节点名 - 获取客户端Token\n" +
+			"客户端 删除 节点名 - 删除客户端\n\n" +
+			"直接输入节点名称快速查看"
+	case "状态", "状态查询":
 		nodes, err := getNodeList()
 		if err != nil {
 			return "❌ " + err.Error()
@@ -729,59 +734,49 @@ func processWecomMsg(content string) string {
 			"🔲 平均CPU: %.1f%%\n"+
 			"💾 平均内存: %.1f%%",
 			total, online, offline, avgCPU, avgMem)
-	case content == "列表" || content == "/list" || content == "list":
+	case "列表":
 		nodes, err := getNodeList()
 		if err != nil {
 			return "❌ " + err.Error()
 		}
 		return fmtNodeListWithStatus(nodes)
-	case content == "离线" || content == "/offline" || content == "offline":
+	case "离线":
 		return fmtOfflineNodes()
-	case content == "ping" || content == "/ping" || content == "Ping":
+	case "Ping", "ping":
 		return fmtPingInfo()
-	case content == "排名" || content == "/rank" || content == "rank":
+	case "排名":
 		nodes, err := getNodeList()
 		if err != nil {
 			return "❌ " + err.Error()
 		}
 		return fmtCPUUsageRank(nodes) + "\n\n" + fmtMemUsageRank(nodes)
-	case content == "信息" || content == "/info" || content == "info":
+	case "信息":
 		return fmtSiteInfo()
-	case content == "分组" || content == "/group" || content == "group":
+	case "分组":
 		return fmtGroupList()
-	case content == "管理" || content == "/admin" || content == "admin":
-		return "🔧 管理员面板\n\n" +
-			"/admin_clients - 客户端管理\n" +
-			"/admin_notify - 通知管理\n" +
-			"/admin_ping - Ping任务管理\n" +
-			"/admin_tasks - 远程任务\n" +
-			"/admin_logs - 审计日志\n" +
-			"/admin_sessions - 会话管理\n" +
-			"/admin_settings - 设置\n" +
-			"/admin_clear - 清空记录"
-	case content == "/admin_clients" || content == "客户端管理":
+	case "客户端":
 		clients, err := adminListClients()
 		if err != nil {
 			return "❌ " + err.Error()
 		}
 		return fmtAdminClientList(clients)
-	case content == "/admin_notify" || content == "通知管理":
+	case "通知":
 		var sb strings.Builder
 		sb.WriteString("🔔 通知管理\n\n")
 		offline, err := adminListOfflineNotifications()
 		if err == nil {
-		sb.WriteString("📤 离线通知:\n")
-		sb.WriteString(fmtAdminNotifications(offline, "离线通知"))
-		sb.WriteString("\n")
+			sb.WriteString("📤 离线通知:\n")
+			sb.WriteString(fmtAdminNotifications(offline, "离线通知"))
+			sb.WriteString("\n")
 		}
 		traffic, err := adminListTrafficReports()
 		if err == nil {
-		sb.WriteString("📊 流量报告:\n")
-		sb.WriteString(fmtAdminNotifications(traffic, "流量报告"))
-		sb.WriteString("\n")
+			sb.WriteString("📊 流量报告:\n")
+			sb.WriteString(fmtAdminNotifications(traffic, "流量报告"))
+			sb.WriteString("\n")
 		}
 		return sb.String()
-	case content == "/admin_ping" || content == "Ping管理":
+	case "Ping任务", "ping任务":
 		tasks, err := adminListPingTasks()
 		if err != nil {
 			return "❌ " + err.Error()
@@ -789,51 +784,58 @@ func processWecomMsg(content string) string {
 		var sb strings.Builder
 		sb.WriteString("📡 Ping任务\n\n")
 		if len(tasks) == 0 {
-		sb.WriteString("暂无Ping任务")
+			sb.WriteString("暂无Ping任务")
 		} else {
-		for _, t := range tasks {
-			sb.WriteString(fmt.Sprintf("• %s (ID: %d)\n", t.Name, t.ID))
-		}
+			for _, t := range tasks {
+				sb.WriteString(fmt.Sprintf("• %s (ID: %d)\n", t.Name, t.ID))
+			}
 		}
 		return sb.String()
-	case content == "/admin_tasks" || content == "远程任务":
+	case "远程任务":
 		tasks, err := adminListAllTasks()
 		if err != nil {
 			return "❌ " + err.Error()
 		}
 		return fmtAdminTasks(tasks)
-	case content == "/admin_logs" || content == "日志":
+	case "日志":
 		logs, err := adminGetLogs(20, 1)
 		if err != nil {
 			return "❌ " + err.Error()
 		}
 		return fmtAdminLogs(logs)
-	case content == "/admin_sessions" || content == "会话":
+	case "会话":
 		sessions, err := adminGetSessions()
 		if err != nil {
 			return "❌ " + err.Error()
 		}
 		return fmtAdminSessions(sessions)
-	case content == "/admin_settings" || content == "设置":
+	case "设置":
 		settings, err := adminGetSettings()
 		if err != nil {
 			return "❌ " + err.Error()
 		}
 		return fmtAdminSettings(settings)
-	case content == "/admin_clear" || content == "清空记录":
+	case "清空记录":
 		err := adminClearAllRecords()
 		if err != nil {
 			return "❌ 清空失败: " + err.Error()
 		}
 		return "✅ 所有记录已清空"
-	default:
-		ns := searchNodes(content)
+	}
+
+	// 前缀匹配（带参数的命令）
+	lower := strings.ToLower(content)
+
+	// 详情 节点名
+	if strings.HasPrefix(content, "详情 ") {
+		name := strings.TrimSpace(content[len("详情 "):])
+		ns := searchNodes(name)
 		switch len(ns) {
 		case 1:
 			rt, _ := getNodeRealtime(ns[0].UUID)
 			return fmtNodeStatus(&ns[0], rt)
 		case 0:
-			return fmt.Sprintf("未找到: %s", content)
+			return fmt.Sprintf("未找到节点: %s", name)
 		default:
 			var s strings.Builder
 			s.WriteString(fmt.Sprintf("找到 %d 个节点:\n", len(ns)))
@@ -842,6 +844,72 @@ func processWecomMsg(content string) string {
 			}
 			return s.String()
 		}
+	}
+
+	// 客户端 Token 节点名
+	if strings.HasPrefix(lower, "客户端 token ") || strings.HasPrefix(lower, "客户端 token	") {
+		name := strings.TrimSpace(content[len("客户端 Token "):])
+		if name == "" {
+			name = strings.TrimSpace(content[len("客户端 token "):])
+		}
+		uuid, err := resolveNodeUUID(name)
+		if err != nil {
+			return "❌ " + err.Error()
+		}
+		token, err := adminGetClientToken(uuid)
+		if err != nil {
+			return "❌ 获取Token失败: " + err.Error()
+		}
+		return fmt.Sprintf("🔑 客户端 Token\n\n名称: %s\nUUID: %s\nToken: %s", name, uuid, token)
+	}
+
+	// 客户端 删除 节点名
+	if strings.HasPrefix(lower, "客户端 删除 ") || strings.HasPrefix(lower, "客户端 删除	") {
+		name := strings.TrimSpace(content[len("客户端 删除 "):])
+		uuid, err := resolveNodeUUID(name)
+		if err != nil {
+			return "❌ " + err.Error()
+		}
+		err = adminRemoveClient(uuid)
+		if err != nil {
+			return "❌ 删除失败: " + err.Error()
+		}
+		return fmt.Sprintf("✅ 客户端 '%s' 已删除", name)
+	}
+
+	// 默认：尝试匹配节点名
+	ns := searchNodes(content)
+	switch len(ns) {
+	case 1:
+		rt, _ := getNodeRealtime(ns[0].UUID)
+		return fmtNodeStatus(&ns[0], rt)
+	case 0:
+		return fmt.Sprintf("未找到: %s\n\n发送 帮助 查看可用命令", content)
+	default:
+		var s strings.Builder
+		s.WriteString(fmt.Sprintf("找到 %d 个节点:\n", len(ns)))
+		for i, n := range ns {
+			s.WriteString(fmt.Sprintf("%d. %s\n", i+1, n.Name))
+		}
+		return s.String()
+	}
+}
+
+// resolveNodeUUID 根据节点名称查找UUID
+func resolveNodeUUID(name string) (string, error) {
+	ns := searchNodes(name)
+	switch len(ns) {
+	case 0:
+		return "", fmt.Errorf("未找到节点: %s", name)
+	case 1:
+		return ns[0].UUID, nil
+	default:
+		var s strings.Builder
+		s.WriteString(fmt.Sprintf("找到 %d 个节点，请用更精确的名称:\n", len(ns)))
+		for i, n := range ns {
+			s.WriteString(fmt.Sprintf("%d. %s\n", i+1, n.Name))
+		}
+		return "", fmt.Errorf("%s", s.String())
 	}
 }
 
