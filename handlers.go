@@ -14,7 +14,26 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 )
+
+// Telegram user state tracking for multi-step operations
+var tgUserState sync.Map // chatID -> state string (e.g., "add_client", "edit_client:uuid")
+
+func setUserState(chatID int64, state string) {
+	tgUserState.Store(chatID, state)
+}
+
+func getUserState(chatID int64) string {
+	if v, ok := tgUserState.Load(chatID); ok {
+		return v.(string)
+	}
+	return ""
+}
+
+func clearUserState(chatID int64) {
+	tgUserState.Delete(chatID)
+}
 
 // Telegram
 func setTelegramBotCommands() error {
@@ -62,24 +81,70 @@ func handleTgMsg(m *TgMsg) {
 		tgSend(m.Chat.ID, "⚠️ 无权限")
 		return
 	}
+	chatID := m.Chat.ID
 	txt := strings.TrimSpace(m.Text)
+
+	// Check for pending user state (multi-step operations)
+	state := getUserState(chatID)
+	if state != "" {
+		clearUserState(chatID)
+		switch {
+		case state == "add_client":
+			handleTgAdminClientAddSubmit(chatID, txt)
+			return
+		case strings.HasPrefix(state, "edit_client:"):
+			uuid := strings.TrimPrefix(state, "edit_client:")
+			handleTgAdminClientEditSubmit(chatID, uuid+"|"+txt)
+			return
+		case state == "edit_offline_notify":
+			handleTgAdminNotifyOfflineEditSubmit(chatID, txt)
+			return
+		case state == "add_load_alert":
+			handleTgAdminLoadAlertAddSubmit(chatID, txt)
+			return
+		case strings.HasPrefix(state, "edit_load_alert:"):
+			id := strings.TrimPrefix(state, "edit_load_alert:")
+			handleTgAdminLoadAlertEditSubmit(chatID, id+"|"+txt)
+			return
+		case state == "edit_traffic_report":
+			handleTgAdminTrafficReportEditSubmit(chatID, txt)
+			return
+		case state == "add_ping_task":
+			handleTgAdminPingTaskAddSubmit(chatID, txt)
+			return
+		case strings.HasPrefix(state, "edit_ping_task:"):
+			id := strings.TrimPrefix(state, "edit_ping_task:")
+			handleTgAdminPingTaskEditSubmit(chatID, id+"|"+txt)
+			return
+		case state == "edit_settings":
+			handleTgAdminSettingsEditSubmit(chatID, txt)
+			return
+		case state == "exec_command":
+			handleTgAdminExecCommandSubmit(chatID, txt)
+			return
+		case state == "clear_records":
+			handleTgAdminClearRecordsSubmit(chatID, txt)
+			return
+		}
+	}
+
 	if strings.HasPrefix(txt, "/") {
-		handleTgCmd(m.Chat.ID, strings.TrimPrefix(txt, "/"))
+		handleTgCmd(chatID, strings.TrimPrefix(txt, "/"))
 		return
 	}
 	ns := searchNodes(txt)
 	switch len(ns) {
 	case 1:
-		handleTgNode(m.Chat.ID, ns[0].UUID)
+		handleTgNode(chatID, ns[0].UUID)
 	case 0:
-		tgSend(m.Chat.ID, fmt.Sprintf("未找到: %s", txt))
+		tgSend(chatID, fmt.Sprintf("未找到: %s", txt))
 	default:
 		var s strings.Builder
 		s.WriteString(fmt.Sprintf("找到 %d 个节点:\n", len(ns)))
 		for i, n := range ns {
 			s.WriteString(fmt.Sprintf("%d. %s\n", i+1, n.Name))
 		}
-		tgSend(m.Chat.ID, s.String())
+		tgSend(chatID, s.String())
 	}
 }
 
@@ -310,6 +375,8 @@ func handleTgCallback(cb *TgCallback) {
 	if !isUserAllowed(uid) {
 		return
 	}
+	// Clear any pending user state when a button is clicked
+	clearUserState(uid)
 	parts := strings.SplitN(cb.Data, ":", 2)
 	act, param := parts[0], ""
 	if len(parts) > 1 {
@@ -1703,6 +1770,7 @@ func handleTgAdminClearAllRecords(chatID int64) {
 // ============================================================
 
 func handleTgAdminClientAddForm(chatID int64) {
+	setUserState(chatID, "add_client")
 	tgSendKB(chatID, "➕ *添加客户端*\n\n"+
 		"请按以下格式发送参数 (key=value, 每行一个):\n\n"+
 		"```\n"+
@@ -1714,7 +1782,7 @@ func handleTgAdminClientAddForm(chatID int64) {
 		"```\n\n"+
 		"必填参数: name\n"+
 		"可选参数: region, group, tags, weight, hidden, price, currency, billing_cycle, public_remark, traffic_limit, traffic_limit_type",
-		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_cl"}}})
+		[][]InlineButton{{{Text: "❌ 取消", CallbackData: "adm_cl"}}})
 }
 
 func handleTgAdminClientAddSubmit(chatID int64, param string) {
@@ -1757,6 +1825,7 @@ func handleTgAdminClientAddSubmit(chatID int64, param string) {
 // ============================================================
 
 func handleTgAdminClientEditForm(chatID int64, uuid string) {
+	setUserState(chatID, "edit_client:"+uuid)
 	client, err := adminGetClient(uuid)
 	if err != nil {
 		tgSend(chatID, "❌ 获取客户端失败: "+err.Error())
@@ -1817,6 +1886,7 @@ func handleTgAdminClientEditSubmit(chatID int64, param string) {
 // ============================================================
 
 func handleTgAdminNotifyOfflineEdit(chatID int64) {
+	setUserState(chatID, "edit_offline_notify")
 	tgSendKB(chatID, "✏️ *编辑离线通知配置*\n\n"+
 		"请按以下格式发送参数:\n\n"+
 		"```\n"+
@@ -1827,11 +1897,28 @@ func handleTgAdminNotifyOfflineEdit(chatID int64) {
 		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlo"}}})
 }
 
+func handleTgAdminNotifyOfflineEditSubmit(chatID int64, param string) {
+	params := parseKeyValueParams(param)
+	if v, ok := params["enabled"]; ok {
+		params["enabled"] = v.(string) == "true"
+	}
+	if v, ok := params["interval"]; ok {
+		params["interval"] = parseInt(v.(string))
+	}
+	err := adminEditOfflineNotification(params)
+	if err != nil {
+		tgSend(chatID, "❌ 编辑失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, "✅ 离线通知配置已更新", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlo"}}})
+}
+
 // ============================================================
 // 4. Notification - Load Alert Add
 // ============================================================
 
 func handleTgAdminLoadAlertAddForm(chatID int64) {
+	setUserState(chatID, "add_load_alert")
 	tgSendKB(chatID, "➕ *添加负载告警规则*\n\n"+
 		"请按以下格式发送参数:\n\n"+
 		"```\n"+
@@ -1897,6 +1984,7 @@ func handleTgAdminLoadAlertDelete(chatID int64, idStr string) {
 // ============================================================
 
 func handleTgAdminLoadAlertEditForm(chatID int64, idStr string) {
+	setUserState(chatID, "edit_load_alert:"+idStr)
 	tgSendKB(chatID, fmt.Sprintf("✏️ *编辑负载告警规则 #%s*\n\n"+
 		"请按以下格式发送要修改的参数:\n\n"+
 		"```\n"+
@@ -1941,6 +2029,7 @@ func handleTgAdminLoadAlertEditSubmit(chatID int64, param string) {
 // ============================================================
 
 func handleTgAdminTrafficReportEdit(chatID int64) {
+	setUserState(chatID, "edit_traffic_report")
 	tgSendKB(chatID, "✏️ *编辑流量报告配置*\n\n"+
 		"请按以下格式发送参数:\n\n"+
 		"```\n"+
@@ -1952,11 +2041,28 @@ func handleTgAdminTrafficReportEdit(chatID int64) {
 		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlt"}}})
 }
 
+func handleTgAdminTrafficReportEditSubmit(chatID int64, param string) {
+	params := parseKeyValueParams(param)
+	if v, ok := params["enabled"]; ok {
+		params["enabled"] = v.(string) == "true"
+	}
+	if v, ok := params["interval"]; ok {
+		params["interval"] = parseInt(v.(string))
+	}
+	err := adminEditTrafficReport(params)
+	if err != nil {
+		tgSend(chatID, "❌ 编辑失败: "+err.Error())
+		return
+	}
+	tgSendKB(chatID, "✅ 流量报告配置已更新", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlt"}}})
+}
+
 // ============================================================
 // 8. Ping Task - Add
 // ============================================================
 
 func handleTgAdminPingTaskAddForm(chatID int64) {
+	setUserState(chatID, "add_ping_task")
 	tgSendKB(chatID, "➕ *添加Ping任务*\n\n"+
 		"请按以下格式发送参数:\n\n"+
 		"```\n"+
@@ -2001,6 +2107,7 @@ func handleTgAdminPingTaskAddSubmit(chatID int64, param string) {
 // ============================================================
 
 func handleTgAdminPingTaskEditForm(chatID int64, idStr string) {
+	setUserState(chatID, "edit_ping_task:"+idStr)
 	tgSendKB(chatID, fmt.Sprintf("✏️ *编辑Ping任务 #%s*\n\n"+
 		"请按以下格式发送要修改的参数:\n\n"+
 		"```\n"+
@@ -2043,6 +2150,7 @@ func handleTgAdminPingTaskEditSubmit(chatID int64, param string) {
 // ============================================================
 
 func handleTgAdminSettingsEditForm(chatID int64) {
+	setUserState(chatID, "edit_settings")
 	settings, err := adminGetSettings()
 	if err != nil {
 		tgSend(chatID, "❌ 获取设置失败: "+err.Error())
@@ -2097,6 +2205,7 @@ func handleTgAdminSettingsEditSubmit(chatID int64, param string) {
 // ============================================================
 
 func handleTgAdminExecCommandForm(chatID int64) {
+	setUserState(chatID, "exec_command")
 	tgSendKB(chatID, "⚡ *执行远程命令*\n\n"+
 		"⚠️ 警告: 此命令将在所有客户端上执行!\n\n"+
 		"请输入要执行的命令:",
@@ -2134,6 +2243,7 @@ func handleTgAdminExecCommandSubmit(chatID int64, command string) {
 // ============================================================
 
 func handleTgAdminClearRecordsForm(chatID int64) {
+	setUserState(chatID, "clear_records")
 	tgSendKB(chatID, "🗑 *清空特定记录*\n\n"+
 		"请按以下格式发送参数:\n\n"+
 		"```\n"+
