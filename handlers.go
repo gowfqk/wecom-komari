@@ -702,7 +702,7 @@ func processWecomMsg(content string) string {
 		sb.WriteString("暂无Ping任务")
 		} else {
 		for _, t := range tasks {
-			sb.WriteString(fmt.Sprintf("• %s (ID: %s)\n", t.Name, t.ID))
+			sb.WriteString(fmt.Sprintf("• %s (ID: %d)\n", t.Name, t.ID))
 		}
 		}
 		return sb.String()
