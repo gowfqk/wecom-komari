@@ -192,8 +192,8 @@ type WecomMsg struct {
 	ToUser  string `json:"touser"`
 	AgentId string `json:"agentid"`
 	MsgType string `json:"msgtype"`
-	Text    struct{ Content string } `json:"text"`
-	MD      struct{ Content string } `json:"markdown"`
+	Text    struct{ Content string `json:"content"` } `json:"text"`
+	MD      struct{ Content string `json:"content"` } `json:"markdown"`
 }
 
 type FlexibleInt64 int64
