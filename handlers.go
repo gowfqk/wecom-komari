@@ -836,16 +836,22 @@ func wecomCallbackHandler(w http.ResponseWriter, r *http.Request) {
 			logger.Printf("[WecomCallback] Reply (len=%d): %s", len(reply), reply[:min(200, len(reply))])
 			if reply != "" {
 				logger.Printf("[WecomCallback] Sending reply via API to %s", msg.FromUserName)
-				token, err := getWecomAccessToken()
-				if err != nil {
-					logger.Printf("[WecomCallback] Get access token failed: %v", err)
-				} else {
-					wd := WecomMsg{ToUser: msg.FromUserName, MsgType: "text", AgentId: WecomAid}
-					wd.Text.Content = reply
-					if _, err := httpDo("POST", fmt.Sprintf(SendMsgURL, token), wd, nil); err != nil {
-						logger.Printf("[WecomCallback] Send failed: %v", err)
+				// 异步发送回复，不阻塞回调响应
+				go func(toUser, replyContent string) {
+					token, err := getWecomAccessToken()
+					if err != nil {
+						logger.Printf("[WecomCallback] Get access token failed: %v", err)
+						return
 					}
-				}
+					wd := WecomMsg{ToUser: toUser, MsgType: "text", AgentId: WecomAid}
+					wd.Text.Content = replyContent
+					resp, err := httpDo("POST", fmt.Sprintf(SendMsgURL, token), wd, nil)
+					if err != nil {
+						logger.Printf("[WecomCallback] Send failed: %v", err)
+					} else {
+						logger.Printf("[WecomCallback] Reply sent to %s, resp: %s", toUser, string(resp))
+					}
+				}(msg.FromUserName, reply)
 			}
 		}
 		w.Write([]byte("success"))
