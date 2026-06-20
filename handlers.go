@@ -885,10 +885,10 @@ func processWecomMsg(content string) string {
 			"设置 - 系统设置\n\n" +
 			"📌 带参数命令:\n" +
 			"详情 节点名 - 查看节点详情\n" +
-			"客户端 Token 节点名 - 获取Token+安装命令\n" +
-			"客户端 删除 节点名 - 删除客户端\n" +
-			"客户端 添加 name=xxx region=xxx - 添加客户端\n" +
-			"客户端 编辑 节点名 key=value - 编辑客户端\n\n" +
+			"Token 节点名 - 获取Token+安装命令\n" +
+			"删除 节点名 - 删除客户端\n" +
+			"添加 name=xxx region=xxx - 添加客户端\n" +
+			"编辑 节点名 key=value - 编辑客户端\n\n" +
 			"🔧 通知管理:\n" +
 			"离线通知 编辑 key=value - 编辑离线通知\n" +
 			"负载告警 添加 name=xxx type=cpu threshold=80\n" +
@@ -1057,11 +1057,17 @@ func processWecomMsg(content string) string {
 		}
 	}
 
-	// 客户端 Token 节点名
-	if strings.HasPrefix(lower, "客户端 token ") || strings.HasPrefix(lower, "客户端 token	") {
-		name := strings.TrimSpace(content[len("客户端 Token "):])
-		if name == "" {
-			name = strings.TrimSpace(content[len("客户端 token "):])
+	// Token 节点名 (also accepts legacy "客户端 Token 节点名")
+	if strings.HasPrefix(lower, "token ") || strings.HasPrefix(lower, "客户端 token ") || strings.HasPrefix(lower, "客户端 token	") {
+		// find name after "token " or "客户端 token "
+		var name string
+		if strings.HasPrefix(lower, "token ") {
+			name = strings.TrimSpace(content[len("Token "):])
+		} else {
+			name = strings.TrimSpace(content[len("客户端 Token "):])
+			if name == "" {
+				name = strings.TrimSpace(content[len("客户端 token "):])
+			}
 		}
 		uuid, err := resolveNodeUUID(name)
 		if err != nil {
@@ -1083,9 +1089,14 @@ func processWecomMsg(content string) string {
 		return msg
 	}
 
-	// 客户端 删除 节点名
-	if strings.HasPrefix(lower, "客户端 删除 ") || strings.HasPrefix(lower, "客户端 删除	") {
-		name := strings.TrimSpace(content[len("客户端 删除 "):])
+	// 删除 节点名 (also accepts legacy "客户端 删除 节点名")
+	if strings.HasPrefix(content, "删除 ") || strings.HasPrefix(content, "客户端 删除 ") || strings.HasPrefix(content, "客户端 删除	") {
+		var name string
+		if strings.HasPrefix(content, "删除 ") {
+			name = strings.TrimSpace(content[len("删除 "):])
+		} else {
+			name = strings.TrimSpace(content[len("客户端 删除 "):])
+		}
 		uuid, err := resolveNodeUUID(name)
 		if err != nil {
 			return "❌ " + err.Error()
@@ -1137,12 +1148,17 @@ func processWecomMsg(content string) string {
 		return msg
 	}
 
-	// 客户端 添加 name=xxx region=xxx ...
-	if strings.HasPrefix(content, "客户端 添加 ") || strings.HasPrefix(content, "客户端 添加	") {
-		paramStr := strings.TrimSpace(content[len("客户端 添加 "):])
+	// 添加 name=xxx region=xxx ... (also accepts legacy "客户端 添加")
+	if strings.HasPrefix(content, "添加 ") || strings.HasPrefix(content, "客户端 添加 ") || strings.HasPrefix(content, "客户端 添加	") {
+		var paramStr string
+		if strings.HasPrefix(content, "添加 ") {
+			paramStr = strings.TrimSpace(content[len("添加 "):])
+		} else {
+			paramStr = strings.TrimSpace(content[len("客户端 添加 "):])
+		}
 		params := parseKeyValueParams(paramStr)
 		if _, ok := params["name"]; !ok {
-			return "❌ 缺少必填参数: name\n\n格式: 客户端 添加 name=节点名 region=区域 group=分组"
+			return "❌ 缺少必填参数: name\n\n格式: 添加 name=节点名 region=区域 group=分组"
 		}
 		// Convert types
 		if v, ok := params["weight"]; ok {
@@ -1194,11 +1210,16 @@ func processWecomMsg(content string) string {
 		return msg
 	}
 
-	// 客户端 编辑 节点名 key=value ...
-	if strings.HasPrefix(content, "客户端 编辑 ") || strings.HasPrefix(content, "客户端 编辑	") {
-		parts := strings.SplitN(strings.TrimSpace(content[len("客户端 编辑 "):]), " ", 2)
+	// 编辑 节点名 key=value ... (also accepts legacy "客户端 编辑")
+	if strings.HasPrefix(content, "编辑 ") || strings.HasPrefix(content, "客户端 编辑 ") || strings.HasPrefix(content, "客户端 编辑	") {
+		var parts []string
+		if strings.HasPrefix(content, "编辑 ") {
+			parts = strings.SplitN(strings.TrimSpace(content[len("编辑 "):]), " ", 2)
+		} else {
+			parts = strings.SplitN(strings.TrimSpace(content[len("客户端 编辑 "):]), " ", 2)
+		}
 		if len(parts) < 2 {
-			return "❌ 格式错误\n\n格式: 客户端 编辑 节点名 key=value key2=value2"
+			return "❌ 格式错误\n\n格式: 编辑 节点名 key=value key2=value2"
 		}
 		name := parts[0]
 		uuid, err := resolveNodeUUID(name)
