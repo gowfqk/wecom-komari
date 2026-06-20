@@ -197,6 +197,63 @@ func getNodeRealtime(uuid string) (*KomariRealtimeData, error) {
 	return &data[len(data)-1], nil
 }
 
+// NodeStatusCache 缓存节点在线状态，避免频繁 API 调用
+var nodeStatusCache struct {
+	sync.RWMutex
+	data      map[string]*KomariRealtimeData // uuid -> realtime data
+	expireAt  time.Time
+}
+
+const nodeStatusCacheTTL = 15 * time.Second
+
+// getAllNodeStatus 并发获取所有节点的实时数据，带缓存
+func getAllNodeStatus() map[string]*KomariRealtimeData {
+	nodeStatusCache.RLock()
+	if time.Now().Before(nodeStatusCache.expireAt) && nodeStatusCache.data != nil {
+		data := nodeStatusCache.data
+		nodeStatusCache.RUnlock()
+		return data
+	}
+	nodeStatusCache.RUnlock()
+
+	nodes, err := getNodeList()
+	if err != nil {
+		return nil
+	}
+
+	result := make(map[string]*KomariRealtimeData, len(nodes))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	// 控制并发数，避免打爆 API
+	sem := make(chan struct{}, 10)
+	for _, n := range nodes {
+		if n.Hidden {
+			continue
+		}
+		wg.Add(1)
+		go func(uuid string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			rt, err := getNodeRealtime(uuid)
+			mu.Lock()
+			if err == nil && rt != nil {
+				result[uuid] = rt
+			}
+			mu.Unlock()
+		}(n.UUID)
+	}
+	wg.Wait()
+
+	nodeStatusCache.Lock()
+	nodeStatusCache.data = result
+	nodeStatusCache.expireAt = time.Now().Add(nodeStatusCacheTTL)
+	nodeStatusCache.Unlock()
+
+	return result
+}
+
 func getNodeLoadHistory(uuid string, hours int) ([]KomariLoadRecord, error) {
 	b, err := komariReq("GET", fmt.Sprintf("/api/records/load?uuid=%s&hours=%d", uuid, hours))
 	if err != nil {
@@ -302,11 +359,16 @@ func getOnlineNodes() ([]KomariNode, error) {
 	if err != nil {
 		return nil, err
 	}
+	statusMap := getAllNodeStatus()
 	var online []KomariNode
 	for _, n := range nodes {
-		rt, err := getNodeRealtime(n.UUID)
-		if err == nil && rt != nil {
-			online = append(online, n)
+		if n.Hidden {
+			continue
+		}
+		if statusMap != nil {
+			if _, ok := statusMap[n.UUID]; ok {
+				online = append(online, n)
+			}
 		}
 	}
 	return online, nil
@@ -317,11 +379,18 @@ func getOfflineNodes() ([]KomariNode, error) {
 	if err != nil {
 		return nil, err
 	}
+	statusMap := getAllNodeStatus()
 	var offline []KomariNode
 	for _, n := range nodes {
-		_, err := getNodeRealtime(n.UUID)
-		if err != nil {
+		if n.Hidden {
+			continue
+		}
+		if statusMap == nil {
 			offline = append(offline, n)
+		} else {
+			if _, ok := statusMap[n.UUID]; !ok {
+				offline = append(offline, n)
+			}
 		}
 	}
 	return offline, nil
@@ -462,12 +531,17 @@ func fmtNodeList(nodes []KomariNode) string {
 	if len(nodes) == 0 {
 		return "暂无节点"
 	}
+	statusMap := getAllNodeStatus()
 	var s strings.Builder
 	s.WriteString(fmt.Sprintf("共 %d 个节点:\n\n", len(nodes)))
 	for i, n := range nodes {
-		emoji := "⚪"
+		emoji := "🔴"
 		if n.Hidden {
 			emoji = "🙈"
+		} else if statusMap != nil {
+			if _, ok := statusMap[n.UUID]; ok {
+				emoji = "🟢"
+			}
 		}
 		s.WriteString(fmt.Sprintf("%d. %s %s", i+1, emoji, n.Name))
 		if n.Region != "" {
@@ -485,16 +559,17 @@ func fmtNodeListWithStatus(nodes []KomariNode) string {
 	if len(nodes) == 0 {
 		return "暂无节点"
 	}
+	statusMap := getAllNodeStatus()
 	var s strings.Builder
 	s.WriteString(fmt.Sprintf("共 %d 个节点:\n\n", len(nodes)))
 	for i, n := range nodes {
-		rt, _ := getNodeRealtime(n.UUID)
 		emoji := "🔴"
-		if rt != nil {
-			emoji = "🟢"
-		}
 		if n.Hidden {
 			emoji = "🙈"
+		} else if statusMap != nil {
+			if _, ok := statusMap[n.UUID]; ok {
+				emoji = "🟢"
+			}
 		}
 		s.WriteString(fmt.Sprintf("%d. %s %s", i+1, emoji, n.Name))
 		if n.Region != "" {
@@ -513,10 +588,13 @@ func fmtCPUUsageRank(nodes []KomariNode) string {
 		Name string
 		CPU  float64
 	}
+	statusMap := getAllNodeStatus()
 	var items []nodeCPU
 	for _, n := range nodes {
-		rt, err := getNodeRealtime(n.UUID)
-		if err == nil && rt != nil {
+		if n.Hidden {
+			continue
+		}
+		if rt, ok := statusMap[n.UUID]; ok {
 			items = append(items, nodeCPU{Name: n.Name, CPU: rt.CPU.Usage})
 		}
 	}
@@ -543,10 +621,13 @@ func fmtMemUsageRank(nodes []KomariNode) string {
 		Total   uint64
 		Percent float64
 	}
+	statusMap := getAllNodeStatus()
 	var items []nodeMem
 	for _, n := range nodes {
-		rt, err := getNodeRealtime(n.UUID)
-		if err == nil && rt != nil && n.MemTotal > 0 {
+		if n.Hidden {
+			continue
+		}
+		if rt, ok := statusMap[n.UUID]; ok && n.MemTotal > 0 {
 			pct := float64(rt.RAM.Used) / float64(n.MemTotal) * 100
 			items = append(items, nodeMem{Name: n.Name, Used: rt.RAM.Used, Total: n.MemTotal, Percent: pct})
 		}
@@ -574,10 +655,13 @@ func fmtNetUsageRank(nodes []KomariNode) string {
 		TotalDown uint64
 		Total    uint64
 	}
+	statusMap := getAllNodeStatus()
 	var items []nodeNet
 	for _, n := range nodes {
-		rt, err := getNodeRealtime(n.UUID)
-		if err == nil && rt != nil {
+		if n.Hidden {
+			continue
+		}
+		if rt, ok := statusMap[n.UUID]; ok {
 			total := rt.Network.TotalUp + rt.Network.TotalDown
 			items = append(items, nodeNet{Name: n.Name, TotalUp: rt.Network.TotalUp, TotalDown: rt.Network.TotalDown, Total: total})
 		}

@@ -279,7 +279,8 @@ func handleTgStatus(chatID int64) {
 		tgSend(chatID, "❌ "+err.Error())
 		return
 	}
-	total := len(nodes)
+	statusMap := getAllNodeStatus()
+	total := 0
 	online := 0
 	offline := 0
 	var totalCPU float64
@@ -288,8 +289,8 @@ func handleTgStatus(chatID int64) {
 		if n.Hidden {
 			continue
 		}
-		rt, err := getNodeRealtime(n.UUID)
-		if err == nil && rt != nil {
+		total++
+		if rt, ok := statusMap[n.UUID]; ok {
 			online++
 			totalCPU += rt.CPU.Usage
 			totalMemUsed += rt.RAM.Used
@@ -904,7 +905,8 @@ func processWecomMsg(content string) string {
 		if err != nil {
 			return "❌ " + err.Error()
 		}
-		total := len(nodes)
+		statusMap := getAllNodeStatus()
+		total := 0
 		online := 0
 		offline := 0
 		var totalCPU float64
@@ -913,8 +915,8 @@ func processWecomMsg(content string) string {
 			if n.Hidden {
 				continue
 			}
-			rt, err := getNodeRealtime(n.UUID)
-			if err == nil && rt != nil {
+			total++
+			if rt, ok := statusMap[n.UUID]; ok {
 				online++
 				totalCPU += rt.CPU.Usage
 				totalMemUsed += rt.RAM.Used
