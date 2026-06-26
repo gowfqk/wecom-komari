@@ -5,11 +5,11 @@ compatibility_date = "2024-01-01"
 [vars]
 SENDKEY = "set_a_sendkey"
 # WECOM_CID = ""
-# WECOM_SECRET = ""
-# WECOM_AID = ""
+# WECOM_SECRET=*** WECOM_AID = ""
 # WECOM_TOUID = "@all"
-# TELEGRAM_BOT_TOKEN = ""
+# TELEGRAM_BOT_TOKEN=*** TELEGRAM_WEBHOOK_SECRET = ""
 # TELEGRAM_ALLOWED_USERS = ""
+# TELEGRAM_API_BASE = "https://api.telegram.org"
 
 # Optional: KV namespace for token caching
 # [[kv_namespaces]]
