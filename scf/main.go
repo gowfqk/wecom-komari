@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -17,13 +19,15 @@ import (
 
 // Config from environment variables
 var (
-	Sendkey          = envDefault("SENDKEY", "set_a_sendkey")
-	WecomCid         = envDefault("WECOM_CID", "")
-	WecomSecret      = envDefault("WECOM_SECRET", "")
-	WecomAid         = envDefault("WECOM_AID", "")
-	WecomToUid       = envDefault("WECOM_TOUID", "@all")
-	TelegramBotToken = envDefault("TELEGRAM_BOT_TOKEN", "")
-	TelegramAllowed  = envDefault("TELEGRAM_ALLOWED_USERS", "")
+	Sendkey             = envDefault("SENDKEY", "set_a_sendkey")
+	WecomCid            = envDefault("WECOM_CID", "")
+	WecomSecret         = envDefault("WECOM_SECRET", "")
+	WecomAid            = envDefault("WECOM_AID", "")
+	WecomToUid          = envDefault("WECOM_TOUID", "@all")
+	TelegramBotToken    = envDefault("TELEGRAM_BOT_TOKEN", "")
+	TelegramWebhookSec  = envDefault("TELEGRAM_WEBHOOK_SECRET", "")
+	TelegramAllowed     = envDefault("TELEGRAM_ALLOWED_USERS", "")
+	TelegramAPIBase     = envDefault("TELEGRAM_API_BASE", "https://api.telegram.org")
 )
 
 var (
@@ -45,20 +49,20 @@ func envDefault(key, def string) string {
 
 // APIGatewayRequest is the SCF API Gateway trigger request
 type APIGatewayRequest struct {
-	HTTPMethod string            `json:"httpMethod"`
-	Path       string            `json:"path"`
-	Headers    map[string]string `json:"headers"`
+	HTTPMethod        string            `json:"httpMethod"`
+	Path              string            `json:"path"`
+	Headers           map[string]string `json:"headers"`
 	QueryStringParameters map[string]string `json:"queryStringParameters"`
-	Body       string            `json:"body"`
-	IsBase64Encoded bool         `json:"isBase64Encoded"`
+	Body              string            `json:"body"`
+	IsBase64Encoded   bool              `json:"isBase64Encoded"`
 }
 
 // APIGatewayResponse is the SCF API Gateway trigger response
 type APIGatewayResponse struct {
-	StatusCode int               `json:"statusCode"`
-	Headers    map[string]string `json:"headers"`
-	Body       string            `json:"body"`
-	IsBase64Encoded bool         `json:"isBase64Encoded"`
+	StatusCode    int               `json:"statusCode"`
+	Headers       map[string]string `json:"headers"`
+	Body          string            `json:"body"`
+	IsBase64Encoded bool            `json:"isBase64Encoded"`
 }
 
 // WebhookRequest is the incoming webhook request
@@ -68,6 +72,24 @@ type WebhookRequest struct {
 	Text    string `json:"text"`
 	Msg     string `json:"msg"`
 	Content string `json:"content"`
+}
+
+// TelegramPushRequest is the Telegram push API request
+type TelegramPushRequest struct {
+	Sendkey string `json:"sendkey"`
+	Token   string `json:"token"`
+	ChatID  int64  `json:"chat_id"`
+	Text    string `json:"text"`
+}
+
+// WeComChanRequest is the WeCom channel request
+type WeComChanRequest struct {
+	Sendkey string `json:"sendkey"`
+	Token   string `json:"token"`
+	Msg     string `json:"msg"`
+	Content string `json:"content"`
+	ToUser  string `json:"touser"`
+	AgentId string `json:"agentid"`
 }
 
 func jsonResponse(data interface{}, status int) APIGatewayResponse {
@@ -80,6 +102,69 @@ func jsonResponse(data interface{}, status int) APIGatewayResponse {
 		},
 		Body: string(body),
 	}
+}
+
+// parseBody handles base64-encoded bodies
+func parseBody(event events.APIGatewayRequest) string {
+	body := event.Body
+	if event.IsBase64Encoded {
+		decoded, err := base64.StdEncoding.DecodeString(event.Body)
+		if err != nil {
+			log.Printf("[parseBody] base64 decode error: %v", err)
+			return ""
+		}
+		body = string(decoded)
+	}
+	return body
+}
+
+// getAuthKey extracts sendkey/token from request
+func getAuthKey(event events.APIGatewayRequest, reqSendkey, reqToken string) string {
+	key := reqSendkey
+	if key == "" {
+		key = reqToken
+	}
+	if key == "" {
+		key = event.QueryStringParameters["sendkey"]
+	}
+	if key == "" {
+		key = event.QueryStringParameters["token"]
+	}
+	return key
+}
+
+// normalizePath strips API Gateway stage prefix
+func normalizePath(path string) string {
+	if path == "" {
+		return "/"
+	}
+	// Strip common stage prefixes: /release, /default, /test, /prod
+	stages := []string{"/release", "/default", "/test", "/prod"}
+	for _, stage := range stages {
+		if strings.HasPrefix(path, stage+"/") || path == stage {
+			path = strings.TrimPrefix(path, stage)
+			break
+		}
+	}
+	if path == "" {
+		path = "/"
+	}
+	return path
+}
+
+// isUserAllowed checks if a Telegram user is in the allowed list
+func isUserAllowed(userID int64) bool {
+	if TelegramAllowed == "" {
+		return true // No restriction
+	}
+	for _, id := range strings.Split(TelegramAllowed, ",") {
+		var allowedID int64
+		fmt.Sscanf(strings.TrimSpace(id), "%d", &allowedID)
+		if allowedID == userID {
+			return true
+		}
+	}
+	return false
 }
 
 // Handler is the main SCF handler
@@ -96,17 +181,19 @@ func Handler(ctx context.Context, event events.APIGatewayRequest) (APIGatewayRes
 		}, nil
 	}
 
-	path := event.Path
-	if path == "" {
-		path = "/"
-	}
+	path := normalizePath(event.Path)
+	log.Printf("[Handler] %s %s", event.HTTPMethod, path)
 
 	// Route requests
 	switch path {
 	case "/webhook", "/":
 		return handleWebhook(event)
+	case "/telegram/push":
+		return handleTelegramPush(event)
 	case "/telegram/webhook":
 		return handleTelegramWebhook(event)
+	case "/wecomchan":
+		return handleWeComChan(event)
 	case "/healthz", "/readyz":
 		return jsonResponse(map[string]string{"status": "ok"}, 200), nil
 	default:
@@ -126,21 +213,13 @@ func handleWebhook(event events.APIGatewayRequest) (APIGatewayResponse, error) {
 
 	// Parse request body
 	var req WebhookRequest
-	if err := json.Unmarshal([]byte(event.Body), &req); err != nil {
+	bodyStr := parseBody(event)
+	if err := json.Unmarshal([]byte(bodyStr), &req); err != nil {
 		return jsonResponse(map[string]string{"error": "invalid JSON"}, 400), nil
 	}
 
 	// Auth check
-	key := req.Sendkey
-	if key == "" {
-		key = req.Token
-	}
-	if key == "" {
-		key = event.QueryStringParameters["sendkey"]
-	}
-	if key == "" {
-		key = event.QueryStringParameters["token"]
-	}
+	key := getAuthKey(event, req.Sendkey, req.Token)
 	if key != Sendkey {
 		return jsonResponse(map[string]string{"error": "unauthorized"}, 401), nil
 	}
@@ -164,7 +243,7 @@ func handleWebhook(event events.APIGatewayRequest) (APIGatewayResponse, error) {
 		for _, idStr := range strings.Split(TelegramAllowed, ",") {
 			idStr = strings.TrimSpace(idStr)
 			if idStr != "" {
-				if sendTelegram(idStr, msg) {
+				if sendTelegram(idStr, msg, "") {
 					sent = true
 				}
 			}
@@ -173,7 +252,7 @@ func handleWebhook(event events.APIGatewayRequest) (APIGatewayResponse, error) {
 
 	// Send to WeCom
 	if WecomCid != "" && WecomSecret != "" {
-		if sendWeCom(msg) {
+		if sendWeCom(WecomToUid, WecomAid, msg) {
 			sent = true
 		}
 	}
@@ -181,33 +260,132 @@ func handleWebhook(event events.APIGatewayRequest) (APIGatewayResponse, error) {
 	return jsonResponse(map[string]interface{}{"status": "ok", "sent": sent}, 200), nil
 }
 
+// handleTelegramPush handles direct Telegram push API
+func handleTelegramPush(event events.APIGatewayRequest) (APIGatewayResponse, error) {
+	if event.HTTPMethod != "POST" {
+		return jsonResponse(map[string]string{"error": "method not allowed"}, 405), nil
+	}
+
+	var req TelegramPushRequest
+	bodyStr := parseBody(event)
+	if err := json.Unmarshal([]byte(bodyStr), &req); err != nil {
+		return jsonResponse(map[string]string{"error": "invalid JSON"}, 400), nil
+	}
+
+	key := getAuthKey(event, req.Sendkey, req.Token)
+	if key != Sendkey {
+		return jsonResponse(map[string]string{"error": "unauthorized"}, 401), nil
+	}
+
+	if req.ChatID == 0 || req.Text == "" {
+		return jsonResponse(map[string]string{"error": "missing chat_id or text"}, 400), nil
+	}
+
+	ok := sendTelegram(fmt.Sprintf("%d", req.ChatID), req.Text, "")
+	return jsonResponse(map[string]interface{}{"status": boolStatus(ok)}, 200), nil
+}
+
+// handleWeComChan handles WeCom message sending
+func handleWeComChan(event events.APIGatewayRequest) (APIGatewayResponse, error) {
+	if event.HTTPMethod != "POST" {
+		return jsonResponse(map[string]string{"error": "method not allowed"}, 405), nil
+	}
+
+	var req WeComChanRequest
+	bodyStr := parseBody(event)
+	if err := json.Unmarshal([]byte(bodyStr), &req); err != nil {
+		return jsonResponse(map[string]string{"error": "invalid JSON"}, 400), nil
+	}
+
+	key := getAuthKey(event, req.Sendkey, req.Token)
+	if key != Sendkey {
+		return jsonResponse(map[string]string{"error": "unauthorized"}, 401), nil
+	}
+
+	msg := req.Msg
+	if msg == "" {
+		msg = req.Content
+	}
+	if msg == "" {
+		return jsonResponse(map[string]string{"error": "missing msg/content"}, 400), nil
+	}
+
+	toUser := req.ToUser
+	if toUser == "" {
+		toUser = WecomToUid
+	}
+	agentId := req.AgentId
+	if agentId == "" {
+		agentId = WecomAid
+	}
+
+	ok := sendWeCom(toUser, agentId, msg)
+	return jsonResponse(map[string]interface{}{"status": boolStatus(ok)}, 200), nil
+}
+
 func handleTelegramWebhook(event events.APIGatewayRequest) (APIGatewayResponse, error) {
 	if event.HTTPMethod != "POST" {
 		return jsonResponse(map[string]string{"error": "method not allowed"}, 405), nil
 	}
 
+	// Validate webhook secret
+	if TelegramWebhookSec != "" {
+		secret := event.Headers["X-Telegram-Bot-Api-Secret-Token"]
+		if secret == "" {
+			secret = event.Headers["x-telegram-bot-api-secret-token"]
+		}
+		if secret != TelegramWebhookSec {
+			return jsonResponse(map[string]string{"error": "forbidden"}, 403), nil
+		}
+	}
+
 	// Parse Telegram update
 	var update struct {
 		Message *struct {
+			MessageID int64 `json:"message_id"`
 			Chat struct {
 				ID int64 `json:"id"`
 			} `json:"chat"`
 			From struct {
-				ID int64 `json:"id"`
+				ID        int64  `json:"id"`
+				FirstName string `json:"first_name"`
+				Username  string `json:"username"`
 			} `json:"from"`
 			Text string `json:"text"`
 		} `json:"message"`
 		CallbackQuery *struct {
-			ID string `json:"id"`
+			ID      string `json:"id"`
+			From    struct {
+				ID int64 `json:"id"`
+			} `json:"from"`
+			Data    string `json:"data"`
+			Message *struct {
+				Chat struct {
+					ID int64 `json:"id"`
+				} `json:"chat"`
+			} `json:"message"`
 		} `json:"callback_query"`
 	}
-	if err := json.Unmarshal([]byte(event.Body), &update); err != nil {
+
+	bodyStr := parseBody(event)
+	if err := json.Unmarshal([]byte(bodyStr), &update); err != nil {
 		return jsonResponse(map[string]string{"error": "invalid JSON"}, 400), nil
 	}
 
 	// Handle callback query
 	if update.CallbackQuery != nil {
-		answerCallback(update.CallbackQuery.ID)
+		cb := update.CallbackQuery
+		answerCallback(cb.ID)
+
+		if !isUserAllowed(cb.From.ID) {
+			return jsonResponse(map[string]string{"status": "ok"}, 200), nil
+		}
+
+		chatID := cb.From.ID
+		if cb.Message != nil {
+			chatID = cb.Message.Chat.ID
+		}
+		handleCallbackData(chatID, cb.Data)
 		return jsonResponse(map[string]string{"status": "ok"}, 200), nil
 	}
 
@@ -217,55 +395,102 @@ func handleTelegramWebhook(event events.APIGatewayRequest) (APIGatewayResponse, 
 		text := strings.TrimSpace(update.Message.Text)
 		userID := update.Message.From.ID
 
-		// Check permission
-		allowed := false
-		for _, id := range strings.Split(TelegramAllowed, ",") {
-			var allowedID int64
-			fmt.Sscanf(strings.TrimSpace(id), "%d", &allowedID)
-			if allowedID == userID {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			sendTelegram(fmt.Sprintf("%d", chatID), "⚠️ 无权限")
+		if !isUserAllowed(userID) {
+			sendTelegram(fmt.Sprintf("%d", chatID), "⚠️ 无权限", "")
 			return jsonResponse(map[string]string{"status": "ok"}, 200), nil
 		}
 
 		// Handle commands
 		if strings.HasPrefix(text, "/") {
-			cmd := strings.ToLower(strings.Fields(text[1:])[0])
+			parts := strings.Fields(text[1:])
+			if len(parts) == 0 {
+				return jsonResponse(map[string]string{"status": "ok"}, 200), nil
+			}
+			cmd := strings.ToLower(parts[0])
 			cmd = strings.Split(cmd, "@")[0]
 
 			switch cmd {
 			case "start", "help":
-				sendTelegram(fmt.Sprintf("%d", chatID),
+				sendTelegramKB(fmt.Sprintf("%d", chatID),
 					"*wecom-komari SCF Bot*\n\n"+
 						"直接发送消息内容，我会转发到企业微信。\n\n"+
-						"命令：\n/help - 帮助信息\n/status - 服务状态")
+						"命令：\n/help - 帮助信息\n/status - 服务状态",
+					[][]InlineButton{
+						{{Text: "📊 状态", CallbackData: "cmd:status"}},
+					})
 			case "status":
-				sendTelegram(fmt.Sprintf("%d", chatID),
+				sendTelegramKB(fmt.Sprintf("%d", chatID),
 					"✅ 服务运行中 (SCF)\n"+
 						fmt.Sprintf("📱 Telegram: %s\n", boolStr(TelegramBotToken != ""))+
-						fmt.Sprintf("💼 企业微信: %s", boolStr(WecomCid != "")))
+						fmt.Sprintf("💼 企业微信: %s", boolStr(WecomCid != "")),
+					[][]InlineButton{
+						{{Text: "🔄 刷新", CallbackData: "cmd:status"}},
+					})
 			default:
-				sendTelegram(fmt.Sprintf("%d", chatID), fmt.Sprintf("未知命令: /%s", cmd))
+				sendTelegram(fmt.Sprintf("%d", chatID), fmt.Sprintf("未知命令: /%s", cmd), "")
 			}
 		} else {
 			// Forward message to WeCom
 			if WecomCid != "" && WecomSecret != "" {
-				if sendWeCom(text) {
-					sendTelegram(fmt.Sprintf("%d", chatID), "✅ 已转发到企业微信")
+				if sendWeCom(WecomToUid, WecomAid, text) {
+					sendTelegram(fmt.Sprintf("%d", chatID), "✅ 已转发到企业微信", "")
 				} else {
-					sendTelegram(fmt.Sprintf("%d", chatID), "❌ 转发失败")
+					sendTelegram(fmt.Sprintf("%d", chatID), "❌ 转发失败", "")
 				}
 			} else {
-				sendTelegram(fmt.Sprintf("%d", chatID), "⚠️ 企业微信未配置")
+				sendTelegram(fmt.Sprintf("%d", chatID), "⚠️ 企业微信未配置", "")
 			}
 		}
 	}
 
 	return jsonResponse(map[string]string{"status": "ok"}, 200), nil
+}
+
+// InlineButton for Telegram inline keyboard
+type InlineButton struct {
+	Text         string `json:"text"`
+	CallbackData string `json:"callback_data,omitempty"`
+}
+
+// InlineKeyboard markup
+type InlineKeyboard struct {
+	InlineKeyboard [][]InlineButton `json:"inline_keyboard"`
+}
+
+// handleCallbackData routes Telegram callback button presses
+func handleCallbackData(chatID int64, data string) {
+	parts := strings.SplitN(data, ":", 2)
+	act := parts[0]
+	param := ""
+	if len(parts) > 1 {
+		param = parts[1]
+	}
+
+	switch act {
+	case "cmd":
+		switch param {
+		case "status":
+			sendTelegramKB(fmt.Sprintf("%d", chatID),
+				"✅ 服务运行中 (SCF)\n"+
+					fmt.Sprintf("📱 Telegram: %s\n", boolStr(TelegramBotToken != ""))+
+					fmt.Sprintf("💼 企业微信: %s", boolStr(WecomCid != "")),
+				[][]InlineButton{
+					{{Text: "🔄 刷新", CallbackData: "cmd:status"}},
+				})
+		case "help":
+			sendTelegramKB(fmt.Sprintf("%d", chatID),
+				"*wecom-komari SCF Bot*\n\n"+
+					"直接发送消息内容，我会转发到企业微信。\n\n"+
+					"命令：\n/help - 帮助信息\n/status - 服务状态",
+				[][]InlineButton{
+					{{Text: "📊 状态", CallbackData: "cmd:status"}},
+				})
+		default:
+			sendTelegram(fmt.Sprintf("%d", chatID), fmt.Sprintf("未知操作: %s", param), "")
+		}
+	default:
+		sendTelegram(fmt.Sprintf("%d", chatID), fmt.Sprintf("未知回调: %s", data), "")
+	}
 }
 
 func boolStr(b bool) string {
@@ -275,14 +500,54 @@ func boolStr(b bool) string {
 	return "未配置"
 }
 
-func sendTelegram(chatID, text string) bool {
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", TelegramBotToken)
-	body, _ := json.Marshal(map[string]interface{}{
+func boolStatus(b bool) string {
+	if b {
+		return "ok"
+	}
+	return "fail"
+}
+
+// sendTelegram sends a message to a Telegram chat
+func sendTelegram(chatID, text, parseMode string) bool {
+	url := fmt.Sprintf("%s/bot%s/sendMessage", TelegramAPIBase, TelegramBotToken)
+	msg := map[string]interface{}{
 		"chat_id": chatID,
 		"text":    text,
-	})
+	}
+	if parseMode != "" {
+		msg["parse_mode"] = parseMode
+	} else {
+		msg["parse_mode"] = "Markdown"
+	}
+	body, _ := json.Marshal(msg)
 	resp, err := httpClient.Post(url, "application/json", strings.NewReader(string(body)))
 	if err != nil {
+		log.Printf("[sendTelegram] error: %v", err)
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		log.Printf("[sendTelegram] status %d: %s", resp.StatusCode, string(respBody))
+	}
+	return resp.StatusCode == 200
+}
+
+// sendTelegramKB sends a message with inline keyboard
+func sendTelegramKB(chatID, text string, buttons [][]InlineButton) bool {
+	url := fmt.Sprintf("%s/bot%s/sendMessage", TelegramAPIBase, TelegramBotToken)
+	msg := map[string]interface{}{
+		"chat_id":    chatID,
+		"text":       text,
+		"parse_mode": "Markdown",
+		"reply_markup": map[string]interface{}{
+			"inline_keyboard": buttons,
+		},
+	}
+	body, _ := json.Marshal(msg)
+	resp, err := httpClient.Post(url, "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		log.Printf("[sendTelegramKB] error: %v", err)
 		return false
 	}
 	defer resp.Body.Close()
@@ -290,9 +555,15 @@ func sendTelegram(chatID, text string) bool {
 }
 
 func answerCallback(callbackID string) {
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/answerCallbackQuery", TelegramBotToken)
+	url := fmt.Sprintf("%s/bot%s/answerCallbackQuery", TelegramAPIBase, TelegramBotToken)
 	body, _ := json.Marshal(map[string]string{"callback_query_id": callbackID})
-	httpClient.Post(url, "application/json", strings.NewReader(string(body)))
+	resp, err := httpClient.Post(url, "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		log.Printf("[answerCallback] error: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	io.ReadAll(resp.Body)
 }
 
 func getWeComToken() (string, error) {
@@ -332,32 +603,39 @@ func getWeComToken() (string, error) {
 	return result.AccessToken, nil
 }
 
-func sendWeCom(msg string) bool {
+func sendWeCom(toUser, agentId, msg string) bool {
 	token, err := getWeComToken()
 	if err != nil {
+		log.Printf("[sendWeCom] get token error: %v", err)
 		return false
 	}
 
 	url := fmt.Sprintf("https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=%s", token)
 	body, _ := json.Marshal(map[string]interface{}{
-		"touser":  WecomToUid,
-		"agentid": WecomAid,
+		"touser":  toUser,
+		"agentid": agentId,
 		"msgtype": "text",
 		"text":    map[string]string{"content": msg},
 	})
 	resp, err := httpClient.Post(url, "application/json", strings.NewReader(string(body)))
 	if err != nil {
+		log.Printf("[sendWeCom] error: %v", err)
 		return false
 	}
 	defer resp.Body.Close()
 
 	var result struct {
-		Errcode int `json:"errcode"`
+		Errcode int    `json:"errcode"`
+		Errmsg  string `json:"errmsg"`
 	}
 	json.NewDecoder(resp.Body).Decode(&result)
+	if result.Errcode != 0 {
+		log.Printf("[sendWeCom] errcode=%d errmsg=%s", result.Errcode, result.Errmsg)
+	}
 	return result.Errcode == 0
 }
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	cloudfunction.Start(Handler)
 }
