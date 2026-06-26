@@ -31,8 +31,8 @@ func main() {
 		}
 	}
 
-	// Komari webhook endpoint
-	http.HandleFunc("/webhook", recoverMiddleware(komariWebhookHandler))
+	// Webhook endpoint
+	http.HandleFunc("/webhook", recoverMiddleware(webhookHandler))
 	logger.Println("Registered: /webhook")
 
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })

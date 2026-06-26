@@ -123,38 +123,47 @@ docker-compose up -d
 
 ## 通知转发
 
-两种方式将 Komari 事件转发到 Telegram + 企业微信：
+### Webhook 端点
 
-### 方式一：Webhook 端点（推荐）
+通用消息转发接口，支持任意程序调用。
 
-直接在 Komari 后台「设置 → 通知」中配置 Webhook URL：
+```bash
+curl -X POST "http://localhost:8080/webhook?sendkey=your_key" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "服务器宕机了！"}'
+```
+
+**请求方式：**
+- `GET` - 连通性检查，返回 `{"status":"ok"}`
+- `POST` - 发送消息
+
+**消息字段（任选其一）：**
+- `text` - 推荐
+- `msg` - 兼容
+- `content` - 兼容
+
+**认证（任选其一）：**
+- JSON body: `{"sendkey": "xxx"}` 或 `{"token": "xxx"}`
+- Query 参数: `?sendkey=xxx` 或 `?token=xxx`
+
+**响应：**
+```json
+{"status": "ok", "sent": true}
+```
+
+**转发目标（环境变量配置）：**
+- Telegram：`TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USERS`
+- 企业微信：`WECOM_CID` + `WECOM_SECRET` + `WECOM_TOUID`
+
+### Komari 集成
+
+在 Komari 后台「设置 → 通知」中配置 Webhook URL：
 
 ```
 http://your-server:8080/webhook?sendkey=your_key
 ```
 
-无需额外脚本，wecom-komari 会自动格式化事件并转发。
-
-### 方式二：通知脚本
-
-使用 `komari-notify.js` 脚本粘贴到 Komari 后台「设置 → 通知」中。
-
-使用前修改脚本顶部 4 个配置项：
-- `WECOM_KOMARI_URL` — wecom-komari 服务地址
-- `SENDKEY` — 认证密钥
-- `TG_CHAT_ID` — Telegram Chat ID（不能为 0）
-- `WECOM_USER` — 企业微信接收人
-
-### 支持的事件类型
-
-| 事件 | Emoji | 说明 |
-|------|-------|------|
-| `Offline` | 🔴 | 节点离线 |
-| `Online` | 🟢 | 节点上线 |
-| `Alert` | ⚠️ | 告警 |
-| `Renew` | ⏰ | 续费提醒 |
-| `Expire` | 🚨 | 到期提醒 |
-| `Test` | 🧪 | 测试 |
+或使用 `komari-notify.js` 脚本（见仓库）。
 
 ## API 接口
 
