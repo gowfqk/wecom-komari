@@ -31,6 +31,10 @@ func main() {
 		}
 	}
 
+	// Komari webhook endpoint
+	http.HandleFunc("/webhook", recoverMiddleware(komariWebhookHandler))
+	logger.Println("Registered: /webhook")
+
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	http.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ready")) })
 	srv := &http.Server{Addr: ":8080", ReadTimeout: 15e9, WriteTimeout: 15e9, IdleTimeout: 60e9}

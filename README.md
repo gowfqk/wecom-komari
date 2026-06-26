@@ -121,9 +121,23 @@ docker-compose up -d
 - `/admin_clear` / `清空记录` - 清空记录
 - 直接输入节点名称 - 查看节点详情
 
-## Komari 通知转发
+## 通知转发
 
-`komari-notify.js` 可粘贴到 Komari 后台「设置 → 通知」中，将离线/上线/告警等事件转发到 Telegram + 企业微信。
+两种方式将 Komari 事件转发到 Telegram + 企业微信：
+
+### 方式一：Webhook 端点（推荐）
+
+直接在 Komari 后台「设置 → 通知」中配置 Webhook URL：
+
+```
+http://your-server:8080/webhook?sendkey=your_key
+```
+
+无需额外脚本，wecom-komari 会自动格式化事件并转发。
+
+### 方式二：通知脚本
+
+使用 `komari-notify.js` 脚本粘贴到 Komari 后台「设置 → 通知」中。
 
 使用前修改脚本顶部 4 个配置项：
 - `WECOM_KOMARI_URL` — wecom-komari 服务地址
@@ -131,7 +145,16 @@ docker-compose up -d
 - `TG_CHAT_ID` — Telegram Chat ID（不能为 0）
 - `WECOM_USER` — 企业微信接收人
 
-支持事件：🔴 离线 / 🟢 上线 / ⚠️ 告警 / ⏰ 续费 / 🚨 到期 / 🧪 测试
+### 支持的事件类型
+
+| 事件 | Emoji | 说明 |
+|------|-------|------|
+| `Offline` | 🔴 | 节点离线 |
+| `Online` | 🟢 | 节点上线 |
+| `Alert` | ⚠️ | 告警 |
+| `Renew` | ⏰ | 续费提醒 |
+| `Expire` | 🚨 | 到期提醒 |
+| `Test` | 🧪 | 测试 |
 
 ## API 接口
 
@@ -150,6 +173,37 @@ curl -X POST http://localhost:8080/telegram/push \
   -H "Content-Type: application/json" \
   -d '{"sendkey": "your_key", "chat_id": 123456, "text": "Hello World"}'
 ```
+
+### Komari Webhook
+
+接收 Komari 事件通知并转发到 Telegram + 企业微信。
+
+```bash
+curl -X POST "http://localhost:8080/webhook?sendkey=your_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event": "Offline",
+    "nodes": [{"name": "Server-1", "ip": "1.2.3.4", "region": "CN"}],
+    "time": "2024-01-01 12:00:00",
+    "message": "节点离线"
+  }'
+```
+
+**参数说明：**
+- `sendkey` / `token` - 认证密钥（JSON body 或 query 参数）
+
+**支持的事件类型：**
+- `Offline` / `Online` / `Alert` / `Renew` / `Expire` / `Test`
+
+**JSON 字段兼容：**
+- 事件类型：`event` / `type` / `name`
+- 节点列表：`nodes` / `clients`
+- 时间：`time` / `timestamp`
+- 消息：`message` / `msg`
+
+**转发目标（环境变量配置）：**
+- Telegram：`TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USERS`
+- 企业微信：`WECOM_CID` + `WECOM_SECRET` + `WECOM_TOUID`
 
 ### 健康检查
 
