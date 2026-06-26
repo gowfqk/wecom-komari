@@ -139,8 +139,15 @@ func formatWebhookEvent(event *KomariWebhookEvent) string {
 
 // komariWebhookHandler handles Komari webhook events
 func komariWebhookHandler(w http.ResponseWriter, r *http.Request) {
+	// GET returns simple status for connectivity check
+	if r.Method == "GET" {
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "service": "wecom-komari"})
+		return
+	}
+
 	if r.Method != "POST" {
 		w.WriteHeader(405)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
