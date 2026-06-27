@@ -148,6 +148,45 @@ func handleTgMsg(m *TgMsg) {
 		}
 	}
 
+	// Telegram 文本命令：编辑 节点名 key=value
+	if strings.HasPrefix(txt, "编辑 ") {
+		parts := strings.SplitN(strings.TrimSpace(txt[len("编辑 "):]), " ", 2)
+		if len(parts) < 2 {
+			tgSend(chatID, "❌ 格式错误\n\n格式: 编辑 节点名 key=value")
+			return
+		}
+		name := parts[0]
+		uuid, err := resolveNodeUUID(name)
+		if err != nil {
+			tgSend(chatID, "❌ "+err.Error())
+			return
+		}
+		params := parseKeyValueParams(parts[1])
+		if v, ok := params["weight"]; ok {
+			params["weight"] = parseFloat(v.(string))
+		}
+		if v, ok := params["hidden"]; ok {
+			params["hidden"] = v.(string) == "true"
+		}
+		if v, ok := params["price"]; ok {
+			params["price"] = parseFloat(v.(string))
+		}
+		if v, ok := params["billing_cycle"]; ok {
+			params["billing_cycle"] = parseInt(v.(string))
+		}
+		if v, ok := params["traffic_limit"]; ok {
+			params["traffic_limit"] = parseUint64(v.(string))
+		}
+		err = adminEditClient(uuid, params)
+		if err != nil {
+			tgSend(chatID, "❌ 编辑失败: "+err.Error())
+			return
+		}
+		tgSendKB(chatID, fmt.Sprintf("✅ 客户端 '%s' 已更新", name),
+			[][]InlineButton{{{Text: "📋 查看详情", CallbackData: "adm_cd:" + uuid}}})
+		return
+	}
+
 	ns := searchNodes(txt)
 	switch len(ns) {
 	case 1:
