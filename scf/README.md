@@ -1,132 +1,73 @@
-# wecom-komari (腾讯云函数 SCF 版本)
+# wecom-komari SCF (腾讯云函数版)
 
-基于腾讯云函数 (SCF) 的无服务器版本，支持消息转发到 Telegram + 企业微信。
+基于 Cloudflare Workers 版移植的腾讯云函数（SCF）版本，支持 Telegram Bot 交互和企业微信消息推送。
 
 ## 功能
 
-- ✅ 通用 Webhook 端点 - 接收消息转发
-- ✅ Telegram Bot - 命令处理 + 消息转发
-- ✅ 企业微信消息推送
-- ✅ Token 内存缓存 (函数实例内)
-- ✅ API Gateway 触发器
+- 🤖 Telegram Bot 交互（查询节点状态、管理面板、内联按钮等）
+- 📊 Komari 监控面板 API 集成
+- 💬 企业微信消息推送
+- 🔒 用户权限控制
 
-## 部署
+## 环境变量
 
-### 1. 安装 Serverless CLI
+| 变量名 | 说明 | 必填 |
+|--------|------|------|
+| `SENDKEY` | 消息推送鉴权密钥 | 否 |
+| `KOMARI_URL` | Komari 面板地址 | 是 |
+| `KOMARI_API_KEY` | Komari API Key | 否 |
+| `KOMARI_USERNAME` | Komari 用户名（无API Key时必填） | 否 |
+| `KOMARI_PASSWORD` | Komari 密码（无API Key时必填） | 否 |
+| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | 是 |
+| `TELEGRAM_WEBHOOK_SECRET` | Telegram Webhook 验证密钥 | 否 |
+| `TELEGRAM_ALLOWED_USERS` | 允许使用的 Telegram 用户 ID（逗号分隔） | 否 |
+| `TELEGRAM_API_BASE` | Telegram API 自定义域名（可选） | 否 |
+| `WECOM_CID` | 企业微信 CorpID | 否 |
+| `WECOM_SECRET` | 企业微信 Secret | 否 |
+| `WECOM_AID` | 企业微信 AgentID | 否 |
+| `WECOM_TOUID` | 企业微信消息接收人（默认 @all） | 否 |
+
+## 部署步骤
+
+### 1. 安装 Serverless Framework
 
 ```bash
 npm install -g serverless
 ```
 
-### 2. 创建 serverless.yml
+### 2. 配置环境变量
 
-```yaml
-component: scf
-name: wecom-komari
-app: wecom-komari-app
-
-inputs:
-  name: wecom-komari
-  region: ap-guangzhou
-  runtime: Go1
-  handler: main
-  src:
-    src: ./scf
-    exclude:
-      - .git
-      - .env
-  environment:
-    variables:
-      SENDKEY: "your_sendkey"
-      WECOM_CID: ""
-      WECOM_SECRET: ""
-      WECOM_AID: ""
-      WECOM_TOUID: "@all"
-      TELEGRAM_BOT_TOKEN: ""
-      TELEGRAM_ALLOWED_USERS: ""
-  events:
-    - apigw:
-        parameters:
-          protocols:
-            - https
-          endpoints:
-            - path: /webhook
-              method: ANY
-            - path: /telegram/webhook
-              method: ANY
-            - path: /healthz
-              method: GET
-```
+编辑 `serverless.yml` 中的 `environment.variables` 部分，填入实际的环境变量值。
 
 ### 3. 部署
 
 ```bash
-cd scf
-serverless deploy
+sls deploy
 ```
 
-或使用腾讯云控制台：
+部署完成后，会输出 API 网关的访问地址。
 
-1. 登录 [腾讯云函数控制台](https://console.cloud.tencent.com/scf)
-2. 创建函数 → 选择 "Go" 运行时
-3. 上传 `scf/main.go` 编译后的二进制
-4. 配置环境变量
-5. 创建 API Gateway 触发器
+### 4. 设置 Telegram Webhook
 
-### 4. 编译
+将 API 网关地址设置为 Telegram Bot 的 Webhook：
 
 ```bash
-cd scf
-GOOS=linux GOARCH=amd64 go build -o main main.go
-zip main.zip main
-```
-
-## API
-
-### Webhook 端点
-
-```bash
-# 健康检查
-curl https://xxx.ap-guangzhou.tencentcloudapi.com/webhook
-
-# 发送消息
-curl -X POST "https://xxx.ap-guangzhou.tencentcloudapi.com/webhook?sendkey=your_key" \
+curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
   -H "Content-Type: application/json" \
-  -d '{"text": "Hello from SCF!"}'
+  -d '{"url": "https://<API_GATEWAY_URL>/telegram/webhook", "secret_token": "<YOUR_WEBHOOK_SECRET>"}'
 ```
 
-### Telegram Bot Webhook
+### 5. 验证
 
-设置 Telegram Webhook：
+访问 `https://<API_GATEWAY_URL>/healthz` 应返回 `{"status":"ok"}`。
 
-```bash
-curl -X POST "https://api.telegram.org/bot<YOUR_TOKEN>/setWebhook" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://xxx.ap-guangzhou.tencentcloudapi.com/telegram/webhook"}'
-```
+## API 端点
 
-## 本地测试
-
-```bash
-cd scf
-go run main.go
-# 使用 curl 或 Postman 发送 API Gateway 格式的请求
-```
-
-## 与原版区别
-
-| 特性 | Go 版本 | SCF 版本 |
-|------|---------|----------|
-| 部署 | 服务器/Docker | 腾讯云函数 |
-| 冷启动 | 无 | ~100-300ms |
-| 状态 | 内存 (sync.Map) | 实例内存 (会丢失) |
-| 成本 | 服务器费用 | 按调用次数计费 |
-| 扩展 | 手动 | 自动 |
-| 并发 | 单进程 | 多实例并行 |
-
-## 注意事项
-
-1. **Token 缓存**：函数实例内存中的 token 缓存在冷启动后会丢失，每次冷启动会重新获取
-2. **无状态**：SCF 是无状态的，不要依赖内存存储持久数据
-3. **超时**：默认超时 3 秒，建议设置为 30 秒以处理企业微信 API 调用
-4. **并发**：每个请求可能在不同实例处理，token 缓存不共享
+| 路径 | 方法 | 说明 |
+|------|------|------|
+| `/` 或 `/webhook` | GET | 健康检查 |
+| `/` 或 `/webhook` | POST | 消息转发（Telegram + 企业微信） |
+| `/telegram/push` | POST | 直接推送 Telegram 消息 |
+| `/telegram/webhook` | POST | Telegram Bot Webhook 回调 |
+| `/wecomchan` | POST | 企业微信消息发送 |
+| `/healthz` | GET | 健康检查 |
