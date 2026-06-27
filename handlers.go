@@ -107,9 +107,15 @@ func handleTgMsg(m *TgMsg) {
 			handleTgAdminClientAddSubmit(chatID, txt)
 			return
 		case strings.HasPrefix(state, "edit_client:"):
-			uuid := strings.TrimPrefix(state, "edit_client:")
-			handleTgAdminClientEditSubmit(chatID, uuid+"|"+txt)
-			return
+			// 如果用户输入的是 "编辑 xxx key=val" 格式，走命令解析而非状态提交
+			if strings.HasPrefix(txt, "编辑 ") || strings.HasPrefix(txt, "客户端 编辑 ") {
+				clearUserState(chatID)
+				// fall through to normal command parsing below
+			} else {
+				uuid := strings.TrimPrefix(state, "edit_client:")
+				handleTgAdminClientEditSubmit(chatID, uuid+"|"+txt)
+				return
+			}
 		case state == "edit_offline_notify":
 			handleTgAdminNotifyOfflineEditSubmit(chatID, txt)
 			return
