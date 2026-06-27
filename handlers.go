@@ -431,10 +431,15 @@ func handleTgGroupNodes(chatID int64, groupName string) {
 }
 
 func handleTgNode(chatID int64, uuid string) {
-	n, err := getNodeByUUID(uuid)
+	// 优先用管理API获取完整信息（包含备注等字段）
+	n, err := adminGetClient(uuid)
 	if err != nil {
-		tgSend(chatID, "❌ "+err.Error())
-		return
+		// 管理API失败时回退到公共API
+		n, err = getNodeByUUID(uuid)
+		if err != nil {
+			tgSend(chatID, "❌ "+err.Error())
+			return
+		}
 	}
 	rt, _ := getNodeRealtime(uuid)
 	btns := [][]InlineButton{
