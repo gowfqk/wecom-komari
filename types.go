@@ -148,8 +148,9 @@ type InlineKeyboard struct {
 }
 
 type InlineButton struct {
-	Text         string `json:"text"`
-	CallbackData string `json:"callback_data,omitempty"`
+	Text                      string `json:"text"`
+	CallbackData              string `json:"callback_data,omitempty"`
+	SwitchInlineQueryCurrentChat string `json:"switch_inline_query_current_chat,omitempty"`
 }
 
 type TgMessage struct {

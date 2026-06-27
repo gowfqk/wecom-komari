@@ -2012,21 +2012,28 @@ func handleTgAdminClientEditForm(chatID int64, uuid string) {
 		tgSend(chatID, "❌ 获取客户端失败: "+err.Error())
 		return
 	}
+	short := uuid
+	if len(uuid) > 8 {
+		short = uuid[:8]
+	}
 	tgSendKB(chatID, fmt.Sprintf("✏️ *编辑客户端: %s*\n\n"+
 		"📋 当前信息:\n"+
 		"  名称: %s\n  区域: %s\n  分组: %s\n  权重: %d\n  隐藏: %v\n"+
 		"  标签: %s\n  备注: %s\n  私有备注: %s\n\n"+
-		"📝 *请按以下格式发送修改内容:*\n"+
-		"```\n名称=新名称\n区域=🇨🇳\n权重=10\n```\n\n"+
-		"💡 *可修改参数:*\n"+
-		"  名称 | 区域 | 分组 | 标签\n"+
-		"  权重 | 隐藏 | 价格 | 货币\n"+
-		"  计费周期 | 备注 | 私有备注\n"+
-		"  流量限制 | 流量限制类型\n\n"+
-		"⚠️ 只需填写要修改的参数，其他保持不变\n\n💡 随时输入 `取消` 退出",
+		"💡 点击下方按钮复制命令，修改 = 后面的值发送即可\n"+
+		"💡 也可以直接输入 `名称=新名称` 格式修改\n\n"+
+		"⚠️ 随时输入 `取消` 退出",
 		client.Name, client.Name, client.Region, client.Group, client.Weight, client.Hidden,
 		client.Tags, client.PublicRemark, client.Remark),
-		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_cd:" + uuid}}})
+		[][]InlineButton{
+			{{Text: "📝 名称: " + client.Name, SwitchInlineQueryCurrentChat: "编辑 " + short + " 名称="}},
+			{{Text: "🌍 区域: " + client.Region, SwitchInlineQueryCurrentChat: "编辑 " + short + " 区域="}},
+			{{Text: "📂 分组: " + client.Group, SwitchInlineQueryCurrentChat: "编辑 " + short + " 分组="}},
+			{{Text: "⚖️ 权重: " + fmt.Sprintf("%d", client.Weight), SwitchInlineQueryCurrentChat: "编辑 " + short + " 权重="}},
+			{{Text: "🏷️ 备注: " + client.PublicRemark, SwitchInlineQueryCurrentChat: "编辑 " + short + " 备注="}},
+			{{Text: "🔒 私有备注: " + client.Remark, SwitchInlineQueryCurrentChat: "编辑 " + short + " 私有备注="}},
+			{{Text: "⬅️ 返回", CallbackData: "adm_cd:" + uuid}},
+		})
 }
 
 func handleTgAdminClientEditSubmit(chatID int64, param string) {
