@@ -1,5 +1,5 @@
 /**
- * wecom-komari Cloudflare Worker
+ * wecom-komari Tencent Cloud Function (SCF)
  * 
  * Endpoints:
  *   GET  /webhook          - Health check
@@ -10,73 +10,76 @@
  *   GET  /healthz          - Health check
  */
 
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    const path = url.pathname;
+'use strict';
 
-    // CORS preflight
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        },
-      });
+exports.main_handler = async (event, context) => {
+  const path = event.path || '/';
+  const method = (event.httpMethod || 'GET').toUpperCase();
+
+  // CORS preflight
+  if (method === 'OPTIONS') {
+    return {
+      statusCode: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      },
+      body: '',
+    };
+  }
+
+  try {
+    if (path === '/webhook' || path === '/') {
+      return await handleWebhook(event);
+    }
+    if (path === '/telegram/push') {
+      return await handleTelegramPush(event);
+    }
+    if (path === '/telegram/webhook') {
+      return await handleTelegramWebhook(event);
+    }
+    if (path === '/wecomchan') {
+      return await handleWeComChan(event);
+    }
+    if (path === '/healthz' || path === '/readyz') {
+      return jsonResponse({ status: 'ok' });
     }
 
-    try {
-      if (path === '/webhook' || path === '/') {
-        return handleWebhook(request, env);
-      }
-      if (path === '/telegram/push') {
-        return handleTelegramPush(request, env);
-      }
-      if (path === '/telegram/webhook') {
-        return handleTelegramWebhook(request, env);
-      }
-      if (path === '/wecomchan') {
-        return handleWeComChan(request, env);
-      }
-      if (path === '/healthz' || path === '/readyz') {
-        return jsonResponse({ status: 'ok' });
-      }
-
-      return jsonResponse({ error: 'not found' }, 404);
-    } catch (err) {
-      console.error('[Worker]', err);
-      return jsonResponse({ error: err.message }, 500);
-    }
-  },
+    return jsonResponse({ error: 'not found' }, 404);
+  } catch (err) {
+    console.error('[SCF]', err);
+    return jsonResponse({ error: err.message }, 500);
+  }
 };
 
 // ─── Helpers ───────────────────────────────────────────────
 
-function checkAuth(request, env, body = {}) {
-  const url = new URL(request.url);
-  const key = body.sendkey || body.token || url.searchParams.get('sendkey') || url.searchParams.get('token');
-  return key === env.SENDKEY;
+function checkAuth(event, body = {}) {
+  const params = event.queryStringParameters || {};
+  const key = body.sendkey || body.token || params.sendkey || params.token;
+  return key === process.env.SENDKEY;
 }
 
-function isUserAllowed(env, userId) {
-  if (!env.TELEGRAM_ALLOWED_USERS) return true;
-  const allowed = env.TELEGRAM_ALLOWED_USERS.split(',').map(id => id.trim());
+function isUserAllowed(userId) {
+  if (!process.env.TELEGRAM_ALLOWED_USERS) return true;
+  const allowed = process.env.TELEGRAM_ALLOWED_USERS.split(',').map(id => id.trim());
   return allowed.includes(String(userId));
 }
+
 /**
  * Komari API helper - supports both Bearer token and session auth
  */
 let _komariSessionToken = null;
 
-async function komariLogin(env) {
+async function komariLogin() {
   if (_komariSessionToken) return _komariSessionToken;
-  if (!env.KOMARI_USERNAME || !env.KOMARI_PASSWORD) return null;
+  if (!process.env.KOMARI_USERNAME || !process.env.KOMARI_PASSWORD) return null;
   try {
-    const resp = await fetch(env.KOMARI_URL + '/api/login', {
+    const resp = await fetch(process.env.KOMARI_URL + '/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: env.KOMARI_USERNAME, password: env.KOMARI_PASSWORD }),
+      body: JSON.stringify({ username: process.env.KOMARI_USERNAME, password: process.env.KOMARI_PASSWORD }),
     });
     const data = await resp.json().catch(() => ({}));
     if (data.status === 'success' && data.data?.set_cookie?.session_token) {
@@ -87,38 +90,38 @@ async function komariLogin(env) {
   } catch { return null; }
 }
 
-async function komariReqHeaders(env) {
+async function komariReqHeaders() {
   // Try Bearer token first
-  if (env.KOMARI_API_KEY) {
-    return { 'Authorization': 'Bearer ' + env.KOMARI_API_KEY };
+  if (process.env.KOMARI_API_KEY) {
+    return { 'Authorization': 'Bearer ' + process.env.KOMARI_API_KEY };
   }
   // Fallback to session auth
-  const token = await komariLogin(env);
+  const token = await komariLogin();
   if (token) {
     return { 'Cookie': 'session_token=' + token };
   }
   return {};
 }
 
-async function komariReq(env, path) {
-  if (!env.KOMARI_URL) return null;
+async function komariReq(path) {
+  if (!process.env.KOMARI_URL) return null;
   try {
-    const headers = await komariReqHeaders(env);
-    const resp = await fetch(env.KOMARI_URL + path, { headers });
+    const headers = await komariReqHeaders();
+    const resp = await fetch(process.env.KOMARI_URL + path, { headers });
     const data = await resp.json().catch(() => ({}));
     if (data.status !== 'success') return null;
     return data.data;
   } catch { return null; }
 }
 
-async function komariAdminReq(env, method, path, body) {
-  if (!env.KOMARI_URL) return null;
+async function komariAdminReq(method, path, body) {
+  if (!process.env.KOMARI_URL) return null;
   try {
-    const headers = await komariReqHeaders(env);
+    const headers = await komariReqHeaders();
     headers['Content-Type'] = 'application/json';
     const opts = { method, headers };
     if (body) opts.body = JSON.stringify(body);
-    const resp = await fetch(env.KOMARI_URL + path, opts);
+    const resp = await fetch(process.env.KOMARI_URL + path, opts);
     const text = await resp.text();
     let data;
     try { data = JSON.parse(text); } catch { return null; }
@@ -138,8 +141,8 @@ async function komariAdminReq(env, method, path, body) {
   }
 }
 
-async function getNodeListAndRT(env) {
-  const nodes = await komariReq(env, '/api/nodes');
+async function getNodeListAndRT() {
+  const nodes = await komariReq('/api/nodes');
   if (!nodes) return { nodes: null, rtMap: null };
 
   // Fetch realtime data per node (like Go version: /api/recent/{uuid})
@@ -147,7 +150,7 @@ async function getNodeListAndRT(env) {
   const visible = nodes.filter(n => !n.hidden);
   const results = await Promise.allSettled(
     visible.map(async (n) => {
-      const data = await komariReq(env, '/api/recent/' + n.uuid);
+      const data = await komariReq('/api/recent/' + n.uuid);
       if (data && Array.isArray(data) && data.length > 0) {
         rtMap[n.uuid] = data[data.length - 1]; // last entry = latest
       }
@@ -316,8 +319,8 @@ function fmtPingInfo(pingData) {
 
 // ─── Komari Command Handlers ───────────────────────────────
 
-async function cmdStatus(env) {
-  const { nodes, rtMap } = await getNodeListAndRT(env);
+async function cmdStatus() {
+  const { nodes, rtMap } = await getNodeListAndRT();
   if (!nodes) return '❌ 无法获取节点数据';
 
   let total = 0, online = 0, offline = 0;
@@ -345,20 +348,20 @@ async function cmdStatus(env) {
     `💾 平均内存: ${avgMem.toFixed(1)}%`;
 }
 
-async function cmdList(env) {
-  const { nodes, rtMap } = await getNodeListAndRT(env);
+async function cmdList() {
+  const { nodes, rtMap } = await getNodeListAndRT();
   if (!nodes) return '❌ 无法获取节点列表';
   return fmtNodeList(nodes, rtMap || {});
 }
 
-async function cmdOffline(env) {
-  const { nodes, rtMap } = await getNodeListAndRT(env);
+async function cmdOffline() {
+  const { nodes, rtMap } = await getNodeListAndRT();
   if (!nodes) return '❌ 无法获取节点列表';
   return fmtOfflineNodes(nodes, rtMap || {});
 }
 
-async function cmdRank(env, type) {
-  const { nodes, rtMap } = await getNodeListAndRT(env);
+async function cmdRank(type) {
+  const { nodes, rtMap } = await getNodeListAndRT();
   if (!nodes) return '❌ 无法获取节点列表';
   if (!rtMap) return '❌ 无法获取实时数据';
   switch (type) {
@@ -368,15 +371,15 @@ async function cmdRank(env, type) {
   }
 }
 
-async function cmdInfo(env) {
-  const info = await komariReq(env, '/api/site');
+async function cmdInfo() {
+  const info = await komariReq('/api/site');
   if (!info) return '❌ 无法获取站点信息';
   let txt = '📋 站点信息\n\n';
   if (info.name) txt += `名称: ${info.name}\n`;
   if (info.description) txt += `描述: ${info.description}\n`;
   if (info.url) txt += `地址: ${info.url}\n`;
 
-  const { nodes, rtMap } = await getNodeListAndRT(env);
+  const { nodes, rtMap } = await getNodeListAndRT();
   if (nodes) {
     const onlineCount = nodes.filter(n => !n.hidden && rtMap && rtMap[n.uuid]).length;
     txt += `\n节点: ${onlineCount}/${nodes.length} 在线`;
@@ -384,38 +387,38 @@ async function cmdInfo(env) {
   return txt;
 }
 
-async function cmdGroup(env) {
-  const { nodes } = await getNodeListAndRT(env);
+async function cmdGroup() {
+  const { nodes } = await getNodeListAndRT();
   if (!nodes) return '❌ 无法获取节点列表';
   return fmtGroupList(nodes);
 }
 
-async function cmdPing(env) {
-  const data = await komariReq(env, '/api/ping');
+async function cmdPing() {
+  const data = await komariReq('/api/ping');
   return fmtPingInfo(data);
 }
 
-async function cmdNode(env, uuid) {
-  const nodes = await komariReq(env, '/api/nodes');
+async function cmdNode(uuid) {
+  const nodes = await komariReq('/api/nodes');
   if (!nodes) return null;
   const n = nodes.find(x => x.uuid === uuid);
   if (!n) return null;
   // Fetch realtime data from /api/recent/{uuid}
   let rtData = null;
-  const data = await komariReq(env, '/api/recent/' + uuid);
+  const data = await komariReq('/api/recent/' + uuid);
   if (data && Array.isArray(data) && data.length > 0) {
     rtData = data[data.length - 1];
   }
   return { text: fmtNodeStatus(n, rtData), node: n };
 }
 
-async function cmdHistory(env, uuid) {
-  const nodes = await komariReq(env, '/api/nodes');
+async function cmdHistory(uuid) {
+  const nodes = await komariReq('/api/nodes');
   if (!nodes) return '❌ 无法获取节点信息';
   const n = nodes.find(x => x.uuid === uuid);
   if (!n) return '❌ 节点不存在';
 
-  const recs = await komariReq(env, `/api/records/load?uuid=${uuid}&hours=1`);
+  const recs = await komariReq(`/api/records/load?uuid=${uuid}&hours=1`);
   if (!recs || recs.length === 0) return `📊 ${n.name} - 暂无历史记录`;
 
   let avgCPU = 0, avgMem = 0, avgDisk = 0;
@@ -432,12 +435,12 @@ async function cmdHistory(env, uuid) {
     `📈 记录数: ${cnt}`;
 }
 
-async function cmdAdmin(env) {
+async function cmdAdmin() {
   return '🔧 *管理员面板*\n\n选择操作:';
 }
 
-async function cmdAdminClients(env) {
-  const data = await komariAdminReq(env, 'GET', '/api/admin/client/list');
+async function cmdAdminClients() {
+  const data = await komariAdminReq('GET', '/api/admin/client/list');
   if (!data) return '❌ 无法获取客户端列表\n\n可能原因：\n• API Key 无管理权限\n• Komari 需要用户名/密码认证\n• 端点路径不正确';
   const clients = Array.isArray(data) ? data : [];
   if (clients.length === 0) return '暂无客户端';
@@ -451,8 +454,8 @@ async function cmdAdminClients(env) {
   return txt;
 }
 
-async function cmdAdminClientDetail(env, uuid) {
-  const data = await komariAdminReq(env, 'GET', `/api/admin/client/${uuid}`);
+async function cmdAdminClientDetail(uuid) {
+  const data = await komariAdminReq('GET', `/api/admin/client/${uuid}`);
   if (!data) return '❌ 无法获取客户端详情';
   const c = Array.isArray(data) ? data[0] : data;
   if (!c) return '❌ 客户端不存在';
@@ -468,14 +471,14 @@ async function cmdAdminClientDetail(env, uuid) {
   return txt;
 }
 
-async function cmdAdminClientToken(env, uuid) {
-  const data = await komariAdminReq(env, 'GET', `/api/admin/client/${uuid}`);
+async function cmdAdminClientToken(uuid) {
+  const data = await komariAdminReq('GET', `/api/admin/client/${uuid}`);
   if (!data) return '❌ 无法获取Token';
   const c = Array.isArray(data) ? data[0] : data;
   if (!c) return '❌ 客户端不存在';
   const token = c.token;
   if (!token) return '❌ Token不存在 (Komari版本可能不支持Token API)';
-  const siteURL = (env.KOMARI_URL || '').replace(/\/$/, '');
+  const siteURL = (process.env.KOMARI_URL || '').replace(/\/$/, '');
   const linuxCmd = `wget -qO- https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh | sudo bash -s -- -e ${siteURL} -t ${token}`;
   const winCmd = `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "iwr 'https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1' -UseBasicParsing -OutFile 'install.ps1'; & '.\\install.ps1' '-e' '${siteURL}' '-t' '${token}'"`;
   return `🔑 *Token*\n\n\`${token}\`\n\n` +
@@ -484,17 +487,17 @@ async function cmdAdminClientToken(env, uuid) {
     `📦 *macOS / FreeBSD:*\n手动下载: [GitHub Releases](https://github.com/komari-monitor/komari-agent/releases)`;
 }
 
-async function cmdAdminNotify(env) {
-  const offline = await komariAdminReq(env, 'GET', '/api/admin/notification/offline');
-  const traffic = await komariAdminReq(env, 'GET', '/api/admin/notification/traffic-report/');
+async function cmdAdminNotify() {
+  const offline = await komariAdminReq('GET', '/api/admin/notification/offline');
+  const traffic = await komariAdminReq('GET', '/api/admin/notification/traffic-report/');
   let txt = '🔔 *通知管理*\n\n';
   txt += `离线通知: ${offline && offline.enabled ? '✅ 开启' : '⏸ 关闭'}\n`;
   txt += `流量报告: ${traffic && traffic.enabled ? '✅ 开启' : '⏸ 关闭'}\n`;
   return txt;
 }
 
-async function cmdAdminSettings(env) {
-  const settings = await komariAdminReq(env, 'GET', '/api/admin/settings/');
+async function cmdAdminSettings() {
+  const settings = await komariAdminReq('GET', '/api/admin/settings/');
   if (!settings) return '❌ 无法获取设置';
   let txt = '⚙️ *Komari 设置*\n\n';
   const keys = ['site_name', 'site_description', 'site_url', 'language', 'theme'];
@@ -506,8 +509,8 @@ async function cmdAdminSettings(env) {
   return txt;
 }
 
-async function cmdAdminLogs(env, page) {
-  const data = await komariAdminReq(env, 'GET', `/api/admin/logs?limit=10&page=${page || 1}`);
+async function cmdAdminLogs(page) {
+  const data = await komariAdminReq('GET', `/api/admin/logs?limit=10&page=${page || 1}`);
   if (!data) return '❌ 无法获取日志';
   const logs = Array.isArray(data) ? data : data.logs || data.items || [];
   if (logs.length === 0) return '📜 暂无日志';
@@ -519,8 +522,8 @@ async function cmdAdminLogs(env, page) {
   return txt;
 }
 
-async function cmdAdminTasks(env) {
-  const data = await komariAdminReq(env, 'GET', '/api/admin/task/all');
+async function cmdAdminTasks() {
+  const data = await komariAdminReq('GET', '/api/admin/task/all');
   if (!data) return '❌ 无法获取任务列表';
   const tasks = Array.isArray(data) ? data : data.tasks || data.items || [];
   if (tasks.length === 0) return '📋 暂无远程任务';
@@ -533,8 +536,8 @@ async function cmdAdminTasks(env) {
   return txt;
 }
 
-async function cmdAdminPingTasks(env) {
-  const data = await komariAdminReq(env, 'GET', '/api/admin/ping/');
+async function cmdAdminPingTasks() {
+  const data = await komariAdminReq('GET', '/api/admin/ping/');
   if (!data) return '❌ 无法获取Ping任务';
   const tasks = Array.isArray(data) ? data : data.tasks || data.items || [];
   if (tasks.length === 0) return '📡 暂无Ping任务';
@@ -550,15 +553,15 @@ async function cmdAdminPingTasks(env) {
  * Handle /edit command: /edit uuid_prefix field=value [field2=value2]
  * Supported fields: name, group, region, public_remark
  */
-async function handleEditCommand(env, chatId, args) {
+async function handleEditCommand(chatId, args) {
   if (!args) {
-    await sendTelegram(env, chatId, '用法: `/edit uuid前缀 field=value`\n\n例如:\n`/edit 26f3078e name=新名称`\n`/edit 26f3078e group=新分组 region=CN`\n\n可用字段: name, group, region, public_remark');
+    await sendTelegram(chatId, '用法: `/edit uuid前缀 field=value`\n\n例如:\n`/edit 26f3078e name=新名称`\n`/edit 26f3078e group=新分组 region=CN`\n\n可用字段: name, group, region, public_remark');
     return;
   }
 
   const parts = args.trim().split(/\s+/);
   if (parts.length < 2) {
-    await sendTelegram(env, chatId, '❌ 参数不足\n\n用法: `/edit uuid前缀 field=value`');
+    await sendTelegram(chatId, '❌ 参数不足\n\n用法: `/edit uuid前缀 field=value`');
     return;
   }
 
@@ -567,47 +570,47 @@ async function handleEditCommand(env, chatId, args) {
   for (let i = 1; i < parts.length; i++) {
     const eqIdx = parts[i].indexOf('=');
     if (eqIdx <= 0) {
-      await sendTelegram(env, chatId, `❌ 格式错误: ${parts[i]}\n\n应为 field=value 格式`);
+      await sendTelegram(chatId, `❌ 格式错误: ${parts[i]}\n\n应为 field=value 格式`);
       return;
     }
     const key = parts[i].slice(0, eqIdx);
     const val = parts[i].slice(eqIdx + 1);
     if (!['name', 'group', 'region', 'public_remark'].includes(key)) {
-      await sendTelegram(env, chatId, `❌ 不支持的字段: ${key}\n\n可用字段: name, group, region, public_remark`);
+      await sendTelegram(chatId, `❌ 不支持的字段: ${key}\n\n可用字段: name, group, region, public_remark`);
       return;
     }
     params[key] = val;
   }
 
   // Find full UUID by prefix
-  const nodes = await komariReq(env, '/api/nodes');
+  const nodes = await komariReq('/api/nodes');
   if (!nodes) {
-    await sendTelegram(env, chatId, '❌ 无法获取节点列表');
+    await sendTelegram(chatId, '❌ 无法获取节点列表');
     return;
   }
   const node = nodes.find(n => n.uuid.startsWith(uuidPrefix));
   if (!node) {
-    await sendTelegram(env, chatId, `❌ 未找到 UUID 以 ${uuidPrefix} 开头的节点`);
+    await sendTelegram(chatId, `❌ 未找到 UUID 以 ${uuidPrefix} 开头的节点`);
     return;
   }
 
   // Submit edit
-  const result = await komariAdminReq(env, 'POST', `/api/admin/client/${node.uuid}/edit`, params);
+  const result = await komariAdminReq('POST', `/api/admin/client/${node.uuid}/edit`, params);
   if (result !== null) {
     let txt = `✅ *${node.name}* 已更新\n\n`;
     for (const [k, v] of Object.entries(params)) {
       txt += `• ${k}: ${v}\n`;
     }
-    await sendTelegramKB(env, chatId, txt, [
+    await sendTelegramKB(chatId, txt, [
       [{ text: '📋 查看详情', callback_data: `adm_cd:${node.uuid}` }],
     ]);
   } else {
-    await sendTelegram(env, chatId, '❌ 修改失败，请检查参数');
+    await sendTelegram(chatId, '❌ 修改失败，请检查参数');
   }
 }
 
-async function cmdAdminSessions(env) {
-  const data = await komariAdminReq(env, 'GET', '/api/admin/session/get');
+async function cmdAdminSessions() {
+  const data = await komariAdminReq('GET', '/api/admin/session/get');
   if (!data) return '❌ 无法获取会话';
   const sessions = Array.isArray(data) ? data : data.sessions || data.items || [];
   if (sessions.length === 0) return '🔐 暂无活跃会话';
@@ -622,16 +625,18 @@ async function cmdAdminSessions(env) {
 
 // ─── HTTP Handlers ─────────────────────────────────────────
 
-async function handleWebhook(request, env) {
-  if (request.method === 'GET') {
-    return jsonResponse({ status: 'ok', service: 'wecom-komari-cf' });
+async function handleWebhook(event) {
+  const method = (event.httpMethod || 'GET').toUpperCase();
+  if (method === 'GET') {
+    return jsonResponse({ status: 'ok', service: 'wecom-komari-scf' });
   }
-  if (request.method !== 'POST') {
+  if (method !== 'POST') {
     return jsonResponse({ error: 'method not allowed' }, 405);
   }
 
-  const body = await request.json().catch(() => ({}));
-  if (!checkAuth(request, env, body)) {
+  let body;
+  try { body = JSON.parse(event.body || '{}'); } catch { body = {}; }
+  if (!checkAuth(event, body)) {
     return jsonResponse({ error: 'unauthorized' }, 401);
   }
 
@@ -642,68 +647,75 @@ async function handleWebhook(request, env) {
 
   let sent = false;
 
-  if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_ALLOWED_USERS) {
-    const chatIds = env.TELEGRAM_ALLOWED_USERS.split(',').map(id => id.trim()).filter(Boolean);
+  if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_ALLOWED_USERS) {
+    const chatIds = process.env.TELEGRAM_ALLOWED_USERS.split(',').map(id => id.trim()).filter(Boolean);
     for (const chatId of chatIds) {
-      const result = await sendTelegram(env, chatId, msg);
+      const result = await sendTelegram(chatId, msg);
       if (result.ok) sent = true;
     }
   }
 
-  if (env.WECOM_CID && env.WECOM_SECRET) {
-    const result = await sendWeCom(env, env.WECOM_TOUID || '@all', env.WECOM_AID || '', msg);
+  if (process.env.WECOM_CID && process.env.WECOM_SECRET) {
+    const result = await sendWeCom(process.env.WECOM_TOUID || '@all', process.env.WECOM_AID || '', msg);
     if (result.ok) sent = true;
   }
 
   return jsonResponse({ status: 'ok', sent });
 }
 
-async function handleTelegramPush(request, env) {
-  if (request.method !== 'POST') return jsonResponse({ error: 'method not allowed' }, 405);
-  const body = await request.json().catch(() => ({}));
-  if (!checkAuth(request, env, body)) return jsonResponse({ error: 'unauthorized' }, 401);
+async function handleTelegramPush(event) {
+  const method = (event.httpMethod || 'GET').toUpperCase();
+  if (method !== 'POST') return jsonResponse({ error: 'method not allowed' }, 405);
+  let body;
+  try { body = JSON.parse(event.body || '{}'); } catch { body = {}; }
+  if (!checkAuth(event, body)) return jsonResponse({ error: 'unauthorized' }, 401);
   if (!body.chat_id || !body.text) return jsonResponse({ error: 'missing chat_id or text' }, 400);
-  const result = await sendTelegram(env, body.chat_id, body.text);
+  const result = await sendTelegram(body.chat_id, body.text);
   return jsonResponse({ status: result.ok ? 'ok' : 'fail' });
 }
 
-async function handleWeComChan(request, env) {
-  if (request.method !== 'POST') return jsonResponse({ error: 'method not allowed' }, 405);
-  const body = await request.json().catch(() => ({}));
-  if (!checkAuth(request, env, body)) return jsonResponse({ error: 'unauthorized' }, 401);
+async function handleWeComChan(event) {
+  const method = (event.httpMethod || 'GET').toUpperCase();
+  if (method !== 'POST') return jsonResponse({ error: 'method not allowed' }, 405);
+  let body;
+  try { body = JSON.parse(event.body || '{}'); } catch { body = {}; }
+  if (!checkAuth(event, body)) return jsonResponse({ error: 'unauthorized' }, 401);
   const msg = body.msg || body.content;
   if (!msg) return jsonResponse({ error: 'missing msg/content' }, 400);
-  const toUser = body.touser || env.WECOM_TOUID || '@all';
-  const agentId = body.agentid || env.WECOM_AID || '';
-  const result = await sendWeCom(env, toUser, agentId, msg);
+  const toUser = body.touser || process.env.WECOM_TOUID || '@all';
+  const agentId = body.agentid || process.env.WECOM_AID || '';
+  const result = await sendWeCom(toUser, agentId, msg);
   return jsonResponse({ status: result.ok ? 'ok' : 'fail' });
 }
 
 // ─── Telegram Bot ──────────────────────────────────────────
 
-async function handleTelegramWebhook(request, env) {
-  if (request.method !== 'POST') return jsonResponse({ error: 'method not allowed' }, 405);
+async function handleTelegramWebhook(event) {
+  const method = (event.httpMethod || 'GET').toUpperCase();
+  if (method !== 'POST') return jsonResponse({ error: 'method not allowed' }, 405);
 
-  if (env.TELEGRAM_WEBHOOK_SECRET) {
-    const secret = request.headers.get('X-Telegram-Bot-Api-Secret-Token');
-    if (secret !== env.TELEGRAM_WEBHOOK_SECRET) {
+  const headers = event.headers || {};
+  if (process.env.TELEGRAM_WEBHOOK_SECRET) {
+    const secret = headers['x-telegram-bot-api-secret-token'] || headers['X-Telegram-Bot-Api-Secret-Token'];
+    if (secret !== process.env.TELEGRAM_WEBHOOK_SECRET) {
       return jsonResponse({ error: 'forbidden' }, 403);
     }
   }
 
-  const update = await request.json().catch(() => ({}));
+  let update;
+  try { update = JSON.parse(event.body || '{}'); } catch { update = {}; }
 
   if (update.callback_query) {
     const cb = update.callback_query;
-    await answerCallback(env, cb.id);
-    if (!isUserAllowed(env, cb.from.id)) return jsonResponse({ status: 'ok' });
+    await answerCallback(cb.id);
+    if (!isUserAllowed(cb.from.id)) return jsonResponse({ status: 'ok' });
     const chatId = cb.message ? cb.message.chat.id : cb.from.id;
-    await handleCallbackData(env, chatId, cb.data);
+    await handleCallbackData(chatId, cb.data);
     return jsonResponse({ status: 'ok' });
   }
 
   if (update.message && update.message.text) {
-    await handleMessage(env, update.message);
+    await handleMessage(update.message);
   }
 
   return jsonResponse({ status: 'ok' });
@@ -738,13 +750,13 @@ const HELP_BUTTONS = [
   [{ text: '⚙️ 设置', callback_data: 'adm_set' }],
 ];
 
-async function handleMessage(env, message) {
+async function handleMessage(message) {
   const chatId = message.chat.id;
   const text = message.text.trim();
   const userId = message.from.id;
 
-  if (!isUserAllowed(env, userId)) {
-    await sendTelegram(env, chatId, '⚠️ 无权限');
+  if (!isUserAllowed(userId)) {
+    await sendTelegram(chatId, '⚠️ 无权限');
     return;
   }
 
@@ -757,49 +769,49 @@ async function handleMessage(env, message) {
     switch (cmd) {
       case 'start':
       case 'help':
-        await sendTelegramKB(env, chatId, HELP_TEXT, HELP_BUTTONS);
+        await sendTelegramKB(chatId, HELP_TEXT, HELP_BUTTONS);
         break;
 
       case 'status':
-        await sendTelegramKB(env, chatId, await cmdStatus(env), [
+        await sendTelegramKB(chatId, await cmdStatus(), [
           [{ text: '🔄 刷新', callback_data: 'cmd:status' }, { text: '📋 列表', callback_data: 'cmd:list' }],
           [{ text: '🔴 离线', callback_data: 'cmd:offline' }, { text: '🏆 排名', callback_data: 'cmd:rank' }],
         ]);
         break;
 
       case 'list':
-        await cmdListWithButtons(env, chatId);
+        await cmdListWithButtons(chatId);
         break;
 
       case 'offline':
-        await cmdOfflineWithButtons(env, chatId);
+        await cmdOfflineWithButtons(chatId);
         break;
 
       case 'ping':
-        await sendTelegramKB(env, chatId, await cmdPing(env), [
+        await sendTelegramKB(chatId, await cmdPing(), [
           [{ text: '🔄 刷新', callback_data: 'cmd:ping' }],
         ]);
         break;
 
       case 'rank':
-        await sendTelegramKB(env, chatId, await cmdRank(env, 'cpu'), [
+        await sendTelegramKB(chatId, await cmdRank('cpu'), [
           [{ text: '🔲 CPU', callback_data: 'rank:cpu' }, { text: '💾 内存', callback_data: 'rank:mem' }, { text: '🌐 网络', callback_data: 'rank:net' }],
           [{ text: '🔄 刷新', callback_data: 'cmd:rank' }],
         ]);
         break;
 
       case 'info':
-        await sendTelegramKB(env, chatId, await cmdInfo(env), [
+        await sendTelegramKB(chatId, await cmdInfo(), [
           [{ text: '🔄 刷新', callback_data: 'cmd:info' }],
         ]);
         break;
 
       case 'group':
-        await cmdGroupWithButtons(env, chatId);
+        await cmdGroupWithButtons(chatId);
         break;
 
       case 'admin':
-        await sendTelegramKB(env, chatId, await cmdAdmin(env), [
+        await sendTelegramKB(chatId, await cmdAdmin(), [
           [{ text: '📋 客户端', callback_data: 'adm_cl' }, { text: '🔔 通知', callback_data: 'adm_no' }],
           [{ text: '📡 Ping', callback_data: 'adm_pt' }, { text: '📋 任务', callback_data: 'adm_tl' }],
           [{ text: '📜 日志', callback_data: 'adm_log' }, { text: '⚙️ 设置', callback_data: 'adm_set' }],
@@ -808,69 +820,69 @@ async function handleMessage(env, message) {
         break;
 
       case 'notify':
-        await sendTelegramKB(env, chatId, await cmdAdminNotify(env), [
+        await sendTelegramKB(chatId, await cmdAdminNotify(), [
           [{ text: '🔄 刷新', callback_data: 'adm_no' }],
         ]);
         break;
 
       case 'ping_admin':
-        await sendTelegramKB(env, chatId, await cmdAdminPingTasks(env), [
+        await sendTelegramKB(chatId, await cmdAdminPingTasks(), [
           [{ text: '🔄 刷新', callback_data: 'adm_pt' }],
         ]);
         break;
 
       case 'task':
-        await sendTelegramKB(env, chatId, await cmdAdminTasks(env), [
+        await sendTelegramKB(chatId, await cmdAdminTasks(), [
           [{ text: '🔄 刷新', callback_data: 'adm_tl' }],
         ]);
         break;
 
       case 'logs':
-        await sendTelegramKB(env, chatId, await cmdAdminLogs(env, 1), [
+        await sendTelegramKB(chatId, await cmdAdminLogs(1), [
           [{ text: '🔄 刷新', callback_data: 'adm_log' }],
         ]);
         break;
 
       case 'settings':
-        await sendTelegramKB(env, chatId, await cmdAdminSettings(env), [
+        await sendTelegramKB(chatId, await cmdAdminSettings(), [
           [{ text: '🔄 刷新', callback_data: 'adm_set' }],
         ]);
         break;
 
       case 'sessions':
-        await sendTelegramKB(env, chatId, await cmdAdminSessions(env), [
+        await sendTelegramKB(chatId, await cmdAdminSessions(), [
           [{ text: '🔄 刷新', callback_data: 'adm_sess' }],
         ]);
         break;
 
       case 'edit':
-        await handleEditCommand(env, chatId, args);
+        await handleEditCommand(chatId, args);
         break;
 
       default:
         // Try matching as node name
-        const found = await findNodeByName(env, text);
+        const found = await findNodeByName(text);
         if (found) {
-          const result = await cmdNode(env, found.uuid);
+          const result = await cmdNode(found.uuid);
           if (result) {
-            await sendTelegramKB(env, chatId, result.text, [
+            await sendTelegramKB(chatId, result.text, [
               [{ text: '📈 历史', callback_data: `history:${found.uuid}` }, { text: '🔄 刷新', callback_data: `node:${found.uuid}` }],
               [{ text: '📋 返回列表', callback_data: 'cmd:list' }],
             ]);
             break;
           }
         }
-        await sendTelegram(env, chatId, `未知命令: /${cmd}\n发送 /help 查看可用命令`);
+        await sendTelegram(chatId, `未知命令: /${cmd}\n发送 /help 查看可用命令`);
     }
     return;
   }
 
   // Non-command text: try matching as node name
-  const found = await findNodeByName(env, text);
+  const found = await findNodeByName(text);
   if (found) {
-    const result = await cmdNode(env, found.uuid);
+    const result = await cmdNode(found.uuid);
     if (result) {
-      await sendTelegramKB(env, chatId, result.text, [
+      await sendTelegramKB(chatId, result.text, [
         [{ text: '📈 历史', callback_data: `history:${found.uuid}` }, { text: '🔄 刷新', callback_data: `node:${found.uuid}` }],
         [{ text: '📋 返回列表', callback_data: 'cmd:list' }],
       ]);
@@ -879,27 +891,27 @@ async function handleMessage(env, message) {
   }
 
   // Forward to WeCom (optional)
-  if (env.WECOM_CID && env.WECOM_SECRET) {
-    const result = await sendWeCom(env, env.WECOM_TOUID || '@all', env.WECOM_AID || '', text);
+  if (process.env.WECOM_CID && process.env.WECOM_SECRET) {
+    const result = await sendWeCom(process.env.WECOM_TOUID || '@all', process.env.WECOM_AID || '', text);
     if (result.ok) {
-      await sendTelegram(env, chatId, '✅ 已转发到企业微信');
+      await sendTelegram(chatId, '✅ 已转发到企业微信');
     } else {
-      await sendTelegram(env, chatId, `❌ 转发失败: ${result.error || 'unknown'}`);
+      await sendTelegram(chatId, `❌ 转发失败: ${result.error || 'unknown'}`);
     }
   }
 }
 
-async function findNodeByName(env, name) {
-  const nodes = await komariReq(env, '/api/nodes');
+async function findNodeByName(name) {
+  const nodes = await komariReq('/api/nodes');
   if (!nodes) return null;
   const lower = name.toLowerCase();
   return nodes.find(n => n.name && n.name.toLowerCase() === lower) ||
          nodes.find(n => n.name && n.name.toLowerCase().includes(lower)) || null;
 }
 
-async function cmdListWithButtons(env, chatId) {
-  const { nodes, rtMap } = await getNodeListAndRT(env);
-  if (!nodes) { await sendTelegram(env, chatId, '❌ 无法获取节点列表'); return; }
+async function cmdListWithButtons(chatId) {
+  const { nodes, rtMap } = await getNodeListAndRT();
+  if (!nodes) { await sendTelegram(chatId, '❌ 无法获取节点列表'); return; }
   const buttons = [];
   for (const n of nodes) {
     if (!n.hidden) {
@@ -908,12 +920,12 @@ async function cmdListWithButtons(env, chatId) {
     }
   }
   buttons.push([{ text: '🔄 刷新', callback_data: 'cmd:list' }]);
-  await sendTelegramKB(env, chatId, fmtNodeList(nodes, rtMap || {}), buttons);
+  await sendTelegramKB(chatId, fmtNodeList(nodes, rtMap || {}), buttons);
 }
 
-async function cmdOfflineWithButtons(env, chatId) {
-  const { nodes, rtMap } = await getNodeListAndRT(env);
-  if (!nodes) { await sendTelegram(env, chatId, '❌ 无法获取节点列表'); return; }
+async function cmdOfflineWithButtons(chatId) {
+  const { nodes, rtMap } = await getNodeListAndRT();
+  if (!nodes) { await sendTelegram(chatId, '❌ 无法获取节点列表'); return; }
   const offline = nodes.filter(n => !n.hidden && !(rtMap || {})[n.uuid]);
   const buttons = [];
   for (const n of offline) {
@@ -921,12 +933,12 @@ async function cmdOfflineWithButtons(env, chatId) {
     if (buttons.length >= 20) break;
   }
   buttons.push([{ text: '🔄 刷新', callback_data: 'cmd:offline' }]);
-  await sendTelegramKB(env, chatId, fmtOfflineNodes(nodes, rtMap || {}), buttons);
+  await sendTelegramKB(chatId, fmtOfflineNodes(nodes, rtMap || {}), buttons);
 }
 
-async function cmdGroupWithButtons(env, chatId) {
-  const { nodes } = await getNodeListAndRT(env);
-  if (!nodes) { await sendTelegram(env, chatId, '❌ 无法获取节点列表'); return; }
+async function cmdGroupWithButtons(chatId) {
+  const { nodes } = await getNodeListAndRT();
+  if (!nodes) { await sendTelegram(chatId, '❌ 无法获取节点列表'); return; }
   const groups = {};
   for (const n of nodes) {
     const g = n.group || '未分组';
@@ -938,12 +950,12 @@ async function cmdGroupWithButtons(env, chatId) {
     buttons.push([{ text: `${g} (${groups[g].length})`, callback_data: 'group:' + g }]);
   }
   buttons.push([{ text: '🔄 刷新', callback_data: 'cmd:group' }]);
-  await sendTelegramKB(env, chatId, fmtGroupList(nodes), buttons);
+  await sendTelegramKB(chatId, fmtGroupList(nodes), buttons);
 }
 
 // ─── Callback Handler ──────────────────────────────────────
 
-async function handleCallbackData(env, chatId, data) {
+async function handleCallbackData(chatId, data) {
   const colonIdx = data.indexOf(':');
   const act = colonIdx >= 0 ? data.slice(0, colonIdx) : data;
   const param = colonIdx >= 0 ? data.slice(colonIdx + 1) : '';
@@ -952,48 +964,48 @@ async function handleCallbackData(env, chatId, data) {
     case 'cmd':
       switch (param) {
         case 'status':
-          await sendTelegramKB(env, chatId, await cmdStatus(env), [
+          await sendTelegramKB(chatId, await cmdStatus(), [
             [{ text: '🔄 刷新', callback_data: 'cmd:status' }, { text: '📋 列表', callback_data: 'cmd:list' }],
             [{ text: '🔴 离线', callback_data: 'cmd:offline' }, { text: '🏆 排名', callback_data: 'cmd:rank' }],
           ]);
           break;
         case 'list':
-          await cmdListWithButtons(env, chatId);
+          await cmdListWithButtons(chatId);
           break;
         case 'offline':
-          await cmdOfflineWithButtons(env, chatId);
+          await cmdOfflineWithButtons(chatId);
           break;
         case 'ping':
-          await sendTelegramKB(env, chatId, await cmdPing(env), [
+          await sendTelegramKB(chatId, await cmdPing(), [
             [{ text: '🔄 刷新', callback_data: 'cmd:ping' }],
           ]);
           break;
         case 'rank':
-          await sendTelegramKB(env, chatId, await cmdRank(env, 'cpu'), [
+          await sendTelegramKB(chatId, await cmdRank('cpu'), [
             [{ text: '🔲 CPU', callback_data: 'rank:cpu' }, { text: '💾 内存', callback_data: 'rank:mem' }, { text: '🌐 网络', callback_data: 'rank:net' }],
             [{ text: '🔄 刷新', callback_data: 'cmd:rank' }],
           ]);
           break;
         case 'info':
-          await sendTelegramKB(env, chatId, await cmdInfo(env), [
+          await sendTelegramKB(chatId, await cmdInfo(), [
             [{ text: '🔄 刷新', callback_data: 'cmd:info' }],
           ]);
           break;
         case 'group':
-          await cmdGroupWithButtons(env, chatId);
+          await cmdGroupWithButtons(chatId);
           break;
         case 'help':
-          await sendTelegramKB(env, chatId, HELP_TEXT, HELP_BUTTONS);
+          await sendTelegramKB(chatId, HELP_TEXT, HELP_BUTTONS);
           break;
         default:
-          await sendTelegram(env, chatId, `未知操作: ${param}`);
+          await sendTelegram(chatId, `未知操作: ${param}`);
       }
       break;
 
     case 'node': {
-      const result = await cmdNode(env, param);
-      if (!result) { await sendTelegram(env, chatId, '❌ 节点不存在'); break; }
-      await sendTelegramKB(env, chatId, result.text, [
+      const result = await cmdNode(param);
+      if (!result) { await sendTelegram(chatId, '❌ 节点不存在'); break; }
+      await sendTelegramKB(chatId, result.text, [
         [{ text: '✏️ 编辑', callback_data: `adm_ce:${param}` }, { text: '🔑 Token', callback_data: `adm_ct:${param}` }],
         [{ text: '📈 历史', callback_data: `history:${param}` }, { text: '🔄 刷新', callback_data: `node:${param}` }],
         [{ text: '📋 返回列表', callback_data: 'cmd:list' }],
@@ -1002,25 +1014,25 @@ async function handleCallbackData(env, chatId, data) {
     }
 
     case 'history': {
-      const txt = await cmdHistory(env, param);
-      await sendTelegramKB(env, chatId, txt, [
+      const txt = await cmdHistory(param);
+      await sendTelegramKB(chatId, txt, [
         [{ text: '🔄 刷新', callback_data: `history:${param}` }, { text: '📋 详情', callback_data: `node:${param}` }],
       ]);
       break;
     }
 
     case 'rank':
-      await sendTelegramKB(env, chatId, await cmdRank(env, param), [
+      await sendTelegramKB(chatId, await cmdRank(param), [
         [{ text: '🔲 CPU', callback_data: 'rank:cpu' }, { text: '💾 内存', callback_data: 'rank:mem' }, { text: '🌐 网络', callback_data: 'rank:net' }],
         [{ text: '🔄 刷新', callback_data: `rank:${param}` }],
       ]);
       break;
 
     case 'group': {
-      const { nodes, rtMap } = await getNodeListAndRT(env);
-      if (!nodes) { await sendTelegram(env, chatId, '❌ 无法获取节点列表'); break; }
+      const { nodes, rtMap } = await getNodeListAndRT();
+      if (!nodes) { await sendTelegram(chatId, '❌ 无法获取节点列表'); break; }
       const groupNodes = nodes.filter(n => (n.group || '未分组') === param);
-      if (groupNodes.length === 0) { await sendTelegram(env, chatId, `📂 分组 '${param}' 暂无节点`); break; }
+      if (groupNodes.length === 0) { await sendTelegram(chatId, `📂 分组 '${param}' 暂无节点`); break; }
       let txt = `📂 *${param}* (${groupNodes.length}个节点)\n\n`;
       for (let i = 0; i < groupNodes.length; i++) {
         const n = groupNodes[i];
@@ -1035,13 +1047,13 @@ async function handleCallbackData(env, chatId, data) {
         if (buttons.length >= 20) break;
       }
       buttons.push([{ text: '⬅️ 返回分组', callback_data: 'cmd:group' }]);
-      await sendTelegramKB(env, chatId, txt, buttons);
+      await sendTelegramKB(chatId, txt, buttons);
       break;
     }
 
     // Admin callbacks
     case 'adm':
-      await sendTelegramKB(env, chatId, await cmdAdmin(env), [
+      await sendTelegramKB(chatId, await cmdAdmin(), [
         [{ text: '📋 客户端', callback_data: 'adm_cl' }, { text: '🔔 通知', callback_data: 'adm_no' }],
         [{ text: '📡 Ping', callback_data: 'adm_pt' }, { text: '📋 任务', callback_data: 'adm_tl' }],
         [{ text: '📜 日志', callback_data: 'adm_log' }, { text: '⚙️ 设置', callback_data: 'adm_set' }],
@@ -1050,8 +1062,8 @@ async function handleCallbackData(env, chatId, data) {
       break;
 
     case 'adm_cl': {
-      const data = await komariAdminReq(env, 'GET', '/api/admin/client/list');
-      if (!data || !Array.isArray(data)) { await sendTelegram(env, chatId, '❌ 无法获取客户端列表'); break; }
+      const data = await komariAdminReq('GET', '/api/admin/client/list');
+      if (!data || !Array.isArray(data)) { await sendTelegram(chatId, '❌ 无法获取客户端列表'); break; }
       const buttons = [];
       for (const c of data) {
         if (c.name) buttons.push([{ text: c.name, callback_data: 'adm_cd:' + c.uuid }]);
@@ -1059,13 +1071,13 @@ async function handleCallbackData(env, chatId, data) {
       }
       buttons.push([{ text: '➕ 添加', callback_data: 'adm_ca' }]);
       buttons.push([{ text: '🔄 刷新', callback_data: 'adm_cl' }]);
-      await sendTelegramKB(env, chatId, await cmdAdminClients(env), buttons);
+      await sendTelegramKB(chatId, await cmdAdminClients(), buttons);
       break;
     }
 
     case 'adm_cd': {
-      const txt = await cmdAdminClientDetail(env, param);
-      await sendTelegramKB(env, chatId, txt, [
+      const txt = await cmdAdminClientDetail(param);
+      await sendTelegramKB(chatId, txt, [
         [{ text: '🔑 Token', callback_data: `adm_ct:${param}` }, { text: '🗑 删除', callback_data: `adm_crm:${param}` }],
         [{ text: '⬅️ 返回列表', callback_data: 'adm_cl' }],
       ]);
@@ -1073,52 +1085,52 @@ async function handleCallbackData(env, chatId, data) {
     }
 
     case 'adm_ct': {
-      const txt = await cmdAdminClientToken(env, param);
-      await sendTelegramKB(env, chatId, txt, [
+      const txt = await cmdAdminClientToken(param);
+      await sendTelegramKB(chatId, txt, [
         [{ text: '⬅️ 返回详情', callback_data: `adm_cd:${param}` }],
       ]);
       break;
     }
 
     case 'adm_crm':
-      await sendTelegramKB(env, chatId, `⚠️ 确认删除此客户端？`, [
+      await sendTelegramKB(chatId, `⚠️ 确认删除此客户端？`, [
         [{ text: '✅ 确认删除', callback_data: `adm_crm_y:${param}` }, { text: '❌ 取消', callback_data: `adm_cd:${param}` }],
       ]);
       break;
 
     case 'adm_crm_y': {
-      const result = await komariAdminReq(env, 'POST', `/api/admin/client/${param}/remove`);
-      await sendTelegram(env, chatId, result !== null ? '✅ 客户端已删除' : '❌ 删除失败');
+      const result = await komariAdminReq('POST', `/api/admin/client/${param}/remove`);
+      await sendTelegram(chatId, result !== null ? '✅ 客户端已删除' : '❌ 删除失败');
       break;
     }
 
     case 'adm_no':
-      await sendTelegramKB(env, chatId, await cmdAdminNotify(env), [
+      await sendTelegramKB(chatId, await cmdAdminNotify(), [
         [{ text: '🔄 刷新', callback_data: 'adm_no' }],
       ]);
       break;
 
     case 'adm_pt':
-      await sendTelegramKB(env, chatId, await cmdAdminPingTasks(env), [
+      await sendTelegramKB(chatId, await cmdAdminPingTasks(), [
         [{ text: '🔄 刷新', callback_data: 'adm_pt' }],
       ]);
       break;
 
     case 'adm_tl':
-      await sendTelegramKB(env, chatId, await cmdAdminTasks(env), [
+      await sendTelegramKB(chatId, await cmdAdminTasks(), [
         [{ text: '🔄 刷新', callback_data: 'adm_tl' }],
       ]);
       break;
 
     case 'adm_log':
-      await sendTelegramKB(env, chatId, await cmdAdminLogs(env, 1), [
+      await sendTelegramKB(chatId, await cmdAdminLogs(1), [
         [{ text: '🔄 刷新', callback_data: 'adm_log' }],
       ]);
       break;
 
     case 'adm_logp': {
       const page = parseInt(param) || 1;
-      await sendTelegramKB(env, chatId, await cmdAdminLogs(env, page), [
+      await sendTelegramKB(chatId, await cmdAdminLogs(page), [
         page > 1 ? [{ text: '⬅️ 上一页', callback_data: `adm_logp:${page - 1}` }] : [],
         [{ text: '➡️ 下一页', callback_data: `adm_logp:${page + 1}` }],
         [{ text: '🔄 刷新', callback_data: `adm_logp:${page}` }],
@@ -1127,22 +1139,22 @@ async function handleCallbackData(env, chatId, data) {
     }
 
     case 'adm_set':
-      await sendTelegramKB(env, chatId, await cmdAdminSettings(env), [
+      await sendTelegramKB(chatId, await cmdAdminSettings(), [
         [{ text: '🔄 刷新', callback_data: 'adm_set' }],
       ]);
       break;
 
     case 'adm_sess':
-      await sendTelegramKB(env, chatId, await cmdAdminSessions(env), [
+      await sendTelegramKB(chatId, await cmdAdminSessions(), [
         [{ text: '🔄 刷新', callback_data: 'adm_sess' }],
       ]);
       break;
 
     case 'adm_ce': {
-      const data = await komariAdminReq(env, 'GET', `/api/admin/client/${param}`);
-      if (!data) { await sendTelegram(env, chatId, '❌ 无法获取客户端'); break; }
+      const data = await komariAdminReq('GET', `/api/admin/client/${param}`);
+      if (!data) { await sendTelegram(chatId, '❌ 无法获取客户端'); break; }
       const c = Array.isArray(data) ? data[0] : data;
-      if (!c) { await sendTelegram(env, chatId, '❌ 客户端不存在'); break; }
+      if (!c) { await sendTelegram(chatId, '❌ 客户端不存在'); break; }
       const short = param.slice(0, 8);
       const editHelp = `✏️ *编辑 ${c.name || '客户端'}*\n\n` +
         `当前值:\n` +
@@ -1151,7 +1163,7 @@ async function handleCallbackData(env, chatId, data) {
         `• 地区: ${c.region || '-'}\n` +
         `• 备注: ${c.public_remark || '-'}\n\n` +
         `点击下方按钮复制命令，修改值后发送:`;
-      await sendTelegramKB(env, chatId, editHelp, [
+      await sendTelegramKB(chatId, editHelp, [
         [{ text: `📝 名称: ${c.name || '-'}`, switch_inline_query_current_chat: `/edit ${short} name=` }],
         [{ text: `📂 分组: ${c.group || '-'}`, switch_inline_query_current_chat: `/edit ${short} group=` }],
         [{ text: `🌍 地区: ${c.region || '-'}`, switch_inline_query_current_chat: `/edit ${short} region=` }],
@@ -1162,27 +1174,27 @@ async function handleCallbackData(env, chatId, data) {
     }
 
     default:
-      await sendTelegram(env, chatId, `未知回调: ${data}`);
+      await sendTelegram(chatId, `未知回调: ${data}`);
   }
 }
 
 // ─── Telegram API ──────────────────────────────────────────
 
-async function answerCallback(env, callbackId) {
-  const apiBase = env.TELEGRAM_API_BASE || 'https://api.telegram.org';
-  await fetch(`${apiBase}/bot${env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
+async function answerCallback(callbackId) {
+  const apiBase = process.env.TELEGRAM_API_BASE || 'https://api.telegram.org';
+  await fetch(`${apiBase}/bot${process.env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ callback_query_id: callbackId }),
   });
 }
 
-async function sendTelegram(env, chatId, text, parseMode = 'Markdown') {
-  const apiBase = env.TELEGRAM_API_BASE || 'https://api.telegram.org';
+async function sendTelegram(chatId, text, parseMode = 'Markdown') {
+  const apiBase = process.env.TELEGRAM_API_BASE || 'https://api.telegram.org';
   const body = { chat_id: chatId, text };
   if (parseMode) body.parse_mode = parseMode;
 
-  const resp = await fetch(`${apiBase}/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+  const resp = await fetch(`${apiBase}/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1193,8 +1205,8 @@ async function sendTelegram(env, chatId, text, parseMode = 'Markdown') {
   return { ok: resp.ok, status: resp.status, data };
 }
 
-async function sendTelegramKB(env, chatId, text, buttons) {
-  const apiBase = env.TELEGRAM_API_BASE || 'https://api.telegram.org';
+async function sendTelegramKB(chatId, text, buttons) {
+  const apiBase = process.env.TELEGRAM_API_BASE || 'https://api.telegram.org';
   const body = {
     chat_id: chatId,
     text,
@@ -1202,7 +1214,7 @@ async function sendTelegramKB(env, chatId, text, buttons) {
     reply_markup: { inline_keyboard: buttons },
   };
 
-  const resp = await fetch(`${apiBase}/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+  const resp = await fetch(`${apiBase}/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1214,17 +1226,14 @@ async function sendTelegramKB(env, chatId, text, buttons) {
 
 // ─── WeCom ─────────────────────────────────────────────────
 
-async function getWeComToken(env) {
-  if (env.KV) {
-    const cached = await env.KV.get('wecom_token');
-    if (cached) {
-      const { token, expires } = JSON.parse(cached);
-      if (Date.now() < expires) return token;
-    }
-  }
+let _wecomToken = null;
+let _wecomTokenExpires = 0;
+
+async function getWeComToken() {
+  if (_wecomToken && Date.now() < _wecomTokenExpires) return _wecomToken;
 
   const resp = await fetch(
-    `https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${env.WECOM_CID}&corpsecret=${env.WECOM_SECRET}`
+    `https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${process.env.WECOM_CID}&corpsecret=${process.env.WECOM_SECRET}`
   );
   const data = await resp.json().catch(() => ({}));
 
@@ -1232,19 +1241,15 @@ async function getWeComToken(env) {
     throw new Error(`WeCom token error: ${data.errmsg || 'unknown'}`);
   }
 
-  if (env.KV) {
-    await env.KV.put('wecom_token', JSON.stringify({
-      token: data.access_token,
-      expires: Date.now() + (data.expires_in - 300) * 1000,
-    }), { expirationTtl: 7200 });
-  }
+  _wecomToken = data.access_token;
+  _wecomTokenExpires = Date.now() + (data.expires_in - 300) * 1000;
 
   return data.access_token;
 }
 
-async function sendWeCom(env, toUser, agentId, msg) {
+async function sendWeCom(toUser, agentId, msg) {
   try {
-    const token = await getWeComToken(env);
+    const token = await getWeComToken();
     const resp = await fetch(
       `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${token}`,
       {
@@ -1271,11 +1276,12 @@ async function sendWeCom(env, toUser, agentId, msg) {
 }
 
 function jsonResponse(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
+  return {
+    statusCode: status,
     headers: {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
     },
-  });
+    body: JSON.stringify(data),
+  };
 }
