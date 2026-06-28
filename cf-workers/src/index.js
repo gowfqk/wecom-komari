@@ -1005,6 +1005,26 @@ async function handleCallbackData(env, chatId, msgId, data) {
       break;
     }
 
+    case 'node_r': {
+      // Return from edit form to node detail (in-place edit)
+      const result = await cmdNode(env, param);
+      if (!result) { await sendTelegram(env, chatId, '❌ 节点不存在'); break; }
+      if (msgId) {
+        await editTelegramMessage(env, chatId, msgId, result.text, [
+          [{ text: '✏️ 编辑', callback_data: `adm_ce:${param}` }, { text: '🔑 Token', callback_data: `adm_ct:${param}` }],
+          [{ text: '📈 历史', callback_data: `history:${param}` }, { text: '🔄 刷新', callback_data: `node:${param}` }],
+          [{ text: '📋 返回列表', callback_data: 'cmd:list' }],
+        ]);
+      } else {
+        await sendTelegramKB(env, chatId, result.text, [
+          [{ text: '✏️ 编辑', callback_data: `adm_ce:${param}` }, { text: '🔑 Token', callback_data: `adm_ct:${param}` }],
+          [{ text: '📈 历史', callback_data: `history:${param}` }, { text: '🔄 刷新', callback_data: `node:${param}` }],
+          [{ text: '📋 返回列表', callback_data: 'cmd:list' }],
+        ]);
+      }
+      break;
+    }
+
     case 'history': {
       const txt = await cmdHistory(env, param);
       await sendTelegramKB(env, chatId, txt, [
@@ -1162,7 +1182,7 @@ async function handleCallbackData(env, chatId, msgId, data) {
         [{ text: `📂 group: ${c.group || '-'}`, switch_inline_query_current_chat: `/edit ${short} group=` }],
         [{ text: `🌍 region: ${c.region || '-'}`, switch_inline_query_current_chat: `/edit ${short} region=` }],
         [{ text: `🏷️ public_remark: ${c.public_remark || '-'}`, switch_inline_query_current_chat: `/edit ${short} public_remark=` }],
-        [{ text: '📋 Detail', callback_data: `adm_cd:${param}` }, { text: '⬅️ Back', callback_data: 'adm_cl' }],
+        [{ text: '📋 详情', callback_data: `adm_cd:${param}` }, { text: '⬅️ 返回节点', callback_data: `node_r:${param}` }],
       ];
       if (msgId) {
         console.log('[adm_ce] editing msg:', msgId);

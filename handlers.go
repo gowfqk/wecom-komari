@@ -493,6 +493,29 @@ func handleTgNode(chatID int64, uuid string) {
 	tgSendKB(chatID, fmtNodeStatus(n, rt), btns)
 }
 
+func handleTgNodeEdit(chatID int64, uuid string, msgID int64) {
+	n, err := adminGetClient(uuid)
+	if err != nil {
+		n, err = getNodeByUUID(uuid)
+		if err != nil {
+			tgSend(chatID, "❌ "+err.Error())
+			return
+		}
+	}
+	rt, _ := getNodeRealtime(uuid)
+	btns := [][]InlineButton{
+		{{Text: "✏️ 编辑", CallbackData: "adm_ce:" + uuid}, {Text: "🔑 Token", CallbackData: "adm_ct:" + uuid}},
+		{{Text: "📈 历史", CallbackData: "history:" + uuid}, {Text: "🔄 刷新", CallbackData: "node:" + uuid}},
+		{{Text: "📋 返回列表", CallbackData: "cmd:list"}},
+	}
+	text := fmtNodeStatus(n, rt)
+	if msgID > 0 {
+		tgEditKB(chatID, msgID, text, btns)
+	} else {
+		tgSendKB(chatID, text, btns)
+	}
+}
+
 func handleTgCallback(cb *TgCallback) {
 	answerCB(cb.ID)
 	uid := cb.From.ID
@@ -516,6 +539,8 @@ func handleTgCallback(cb *TgCallback) {
 		handleTgCmd(uid, param)
 	case "node":
 		handleTgNode(uid, param)
+	case "node_r":
+		handleTgNodeEdit(uid, param, msgID)
 	case "history":
 		handleTgHistory(uid, param)
 	case "rank":
@@ -2099,7 +2124,7 @@ func handleTgAdminClientEditForm(chatID int64, uuid string, msgID int64) {
 		{{Text: "⚖️ weight: " + fmt.Sprintf("%d", client.Weight), SwitchInlineQueryCurrentChat: "edit " + short + " weight="}},
 		{{Text: "🏷️ public_remark: " + client.PublicRemark, SwitchInlineQueryCurrentChat: "edit " + short + " public_remark="}},
 		{{Text: "🔒 remark: " + client.Remark, SwitchInlineQueryCurrentChat: "edit " + short + " remark="}},
-		{{Text: "⬅️ Back", CallbackData: "adm_cd:" + uuid}},
+		{{Text: "⬅️ 返回节点", CallbackData: "node_r:" + uuid}},
 	}
 	if msgID > 0 {
 		tgEditKB(chatID, msgID, text, btns)
