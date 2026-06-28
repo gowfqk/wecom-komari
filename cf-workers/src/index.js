@@ -1186,7 +1186,7 @@ async function handleCallbackData(env, chatId, msgId, data) {
         [{ text: `⚖️ 权重: ${c.weight ?? '-'}`, switch_inline_query_current_chat: `/edit ${short} weight=` }],
         [{ text: `🏷️ 公开备注: ${c.public_remark || '-'}`, switch_inline_query_current_chat: `/edit ${short} public_remark=` }],
         [{ text: `🔒 私有备注: ${c.remark || '-'}`, switch_inline_query_current_chat: `/edit ${short} remark=` }],
-        [{ text: '📋 详情', callback_data: `adm_cd:${param}` }, { text: '⬅️ 返回节点', callback_data: `node_r:${param}` }],
+        [{ text: '⬅️ 返回节点', callback_data: `node_r:${param}` }],
       ];
       if (msgId) {
         console.log('[adm_ce] editing msg:', msgId);
