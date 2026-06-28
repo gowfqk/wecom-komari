@@ -1175,17 +1175,17 @@ async function handleCallbackData(env, chatId, msgId, data) {
         `• 名称: ${c.name || '-'}\n` +
         `• 分组: ${c.group || '-'}\n` +
         `• 区域: ${c.region || '-'}\n` +
-        `• weight: ${c.weight ?? '-'}\n` +
-        `• \`public_remark\`: ${c.public_remark || '-'}\n` +
-        `• remark: ${c.remark || '-'}\n\n` +
+        `• 权重: ${c.weight ?? '-'}\n` +
+        `• 公开备注: ${c.public_remark || '-'}\n` +
+        `• 私有备注: ${c.remark || '-'}\n\n` +
         `点击下方按钮复制命令，修改 = 后面的值后发送:`;
       const buttons = [
         [{ text: `📝 名称: ${c.name || '-'}`, switch_inline_query_current_chat: `/edit ${short} name=` }],
         [{ text: `📂 分组: ${c.group || '-'}`, switch_inline_query_current_chat: `/edit ${short} group=` }],
         [{ text: `🌍 区域: ${c.region || '-'}`, switch_inline_query_current_chat: `/edit ${short} region=` }],
-        [{ text: `⚖️ weight: ${c.weight ?? '-'}`, switch_inline_query_current_chat: `/edit ${short} weight=` }],
-        [{ text: `🏷️ 备注: ${c.public_remark || '-'}`, switch_inline_query_current_chat: `/edit ${short} public_remark=` }],
-        [{ text: `🔒 remark: ${c.remark || '-'}`, switch_inline_query_current_chat: `/edit ${short} remark=` }],
+        [{ text: `⚖️ 权重: ${c.weight ?? '-'}`, switch_inline_query_current_chat: `/edit ${short} weight=` }],
+        [{ text: `🏷️ 公开备注: ${c.public_remark || '-'}`, switch_inline_query_current_chat: `/edit ${short} public_remark=` }],
+        [{ text: `🔒 私有备注: ${c.remark || '-'}`, switch_inline_query_current_chat: `/edit ${short} remark=` }],
         [{ text: '📋 详情', callback_data: `adm_cd:${param}` }, { text: '⬅️ 返回节点', callback_data: `node_r:${param}` }],
       ];
       if (msgId) {

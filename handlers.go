@@ -2110,8 +2110,8 @@ func handleTgAdminClientEditForm(chatID int64, uuid string, msgID int64) {
 	}
 	text := fmt.Sprintf("✏️ *编辑 %s* / %s\n\n"+
 		"当前值:\n"+
-		"  name: %s\n  region: %s\n  group: %s\n  weight: %d\n  hidden: %v\n"+
-		"  tags: %s\n  `public_remark`: %s\n  remark: %s\n\n"+
+		"  名称: %s\n  区域: %s\n  分组: %s\n  权重: %d\n  隐藏: %v\n"+
+		"  标签: %s\n  公开备注: %s\n  私有备注: %s\n\n"+
 		"💡 点击下方按钮复制命令，修改 = 后面的值后发送\n"+
 		"💡 或者直接输入 `name=NewName` 修改\n\n"+
 		"⚠️ 输入 `cancel` 退出编辑",
@@ -2121,9 +2121,9 @@ func handleTgAdminClientEditForm(chatID int64, uuid string, msgID int64) {
 		{{Text: "📝 名称: " + client.Name, SwitchInlineQueryCurrentChat: "edit " + short + " name="}},
 		{{Text: "📂 分组: " + client.Group, SwitchInlineQueryCurrentChat: "edit " + short + " group="}},
 		{{Text: "🌍 区域: " + client.Region, SwitchInlineQueryCurrentChat: "edit " + short + " region="}},
-		{{Text: "⚖️ weight: " + fmt.Sprintf("%d", client.Weight), SwitchInlineQueryCurrentChat: "edit " + short + " weight="}},
-		{{Text: "🏷️ 备注: " + client.PublicRemark, SwitchInlineQueryCurrentChat: "edit " + short + " public_remark="}},
-		{{Text: "🔒 remark: " + client.Remark, SwitchInlineQueryCurrentChat: "edit " + short + " remark="}},
+		{{Text: "⚖️ 权重: " + fmt.Sprintf("%d", client.Weight), SwitchInlineQueryCurrentChat: "edit " + short + " weight="}},
+		{{Text: "🏷️ 公开备注: " + client.PublicRemark, SwitchInlineQueryCurrentChat: "edit " + short + " public_remark="}},
+		{{Text: "🔒 私有备注: " + client.Remark, SwitchInlineQueryCurrentChat: "edit " + short + " remark="}},
 		{{Text: "⬅️ 返回节点", CallbackData: "node_r:" + uuid}},
 	}
 	if msgID > 0 {
