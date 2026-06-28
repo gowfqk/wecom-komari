@@ -2118,11 +2118,11 @@ func handleTgAdminClientEditForm(chatID int64, uuid string, msgID int64) {
 		client.Name, short, client.Name, client.Region, client.Group, client.Weight, client.Hidden,
 		client.Tags, client.PublicRemark, client.Remark)
 	btns := [][]InlineButton{
-		{{Text: "📝 name: " + client.Name, SwitchInlineQueryCurrentChat: "edit " + short + " name="}},
-		{{Text: "🌍 region: " + client.Region, SwitchInlineQueryCurrentChat: "edit " + short + " region="}},
-		{{Text: "📂 group: " + client.Group, SwitchInlineQueryCurrentChat: "edit " + short + " group="}},
+		{{Text: "📝 名称: " + client.Name, SwitchInlineQueryCurrentChat: "edit " + short + " name="}},
+		{{Text: "📂 分组: " + client.Group, SwitchInlineQueryCurrentChat: "edit " + short + " group="}},
+		{{Text: "🌍 区域: " + client.Region, SwitchInlineQueryCurrentChat: "edit " + short + " region="}},
 		{{Text: "⚖️ weight: " + fmt.Sprintf("%d", client.Weight), SwitchInlineQueryCurrentChat: "edit " + short + " weight="}},
-		{{Text: "🏷️ public_remark: " + client.PublicRemark, SwitchInlineQueryCurrentChat: "edit " + short + " public_remark="}},
+		{{Text: "🏷️ 备注: " + client.PublicRemark, SwitchInlineQueryCurrentChat: "edit " + short + " public_remark="}},
 		{{Text: "🔒 remark: " + client.Remark, SwitchInlineQueryCurrentChat: "edit " + short + " remark="}},
 		{{Text: "⬅️ 返回节点", CallbackData: "node_r:" + uuid}},
 	}
