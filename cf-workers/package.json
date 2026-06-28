@@ -1,0 +1,10 @@
+{
+  "name": "wecom-komari-cf",
+  "main": "src/index.js",
+  "compatibility_date": "2024-01-01",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  }
+}

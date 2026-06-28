@@ -1,0 +1,41 @@
+component: scf
+name: wecom-komari
+app: wecom-komari-scf
+
+inputs:
+  name: wecom-komari
+  src:
+    src: ./
+    exclude:
+      - .env
+      - .git
+      - .gitignore
+      - README.md
+  handler: index.main_handler
+  runtime: Nodejs18.15
+  region: ap-guangzhou
+  memorySize: 128
+  timeout: 60
+  events:
+    - apigw:
+        parameters:
+          endpoints:
+            - path: /
+              method: ANY
+          protocols:
+            - https
+  environment:
+    variables:
+      SENDKEY: ""
+      KOMARI_URL: ""
+      KOMARI_API_KEY: ""
+      KOMARI_USERNAME: ""
+      KOMARI_PASSWORD: ""
+      TELEGRAM_BOT_TOKEN: ""
+      TELEGRAM_WEBHOOK_SECRET: ""
+      TELEGRAM_ALLOWED_USERS: ""
+      TELEGRAM_API_BASE: ""
+      WECOM_CID: ""
+      WECOM_SECRET: ""
+      WECOM_AID: ""
+      WECOM_TOUID: "@all"
