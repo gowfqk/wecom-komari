@@ -1165,7 +1165,13 @@ async function handleCallbackData(env, chatId, msgId, data) {
         [{ text: '📋 Detail', callback_data: `adm_cd:${param}` }, { text: '⬅️ Back', callback_data: 'adm_cl' }],
       ];
       if (msgId) {
-        await editTelegramMessage(env, chatId, msgId, editHelp, buttons);
+        console.log('[adm_ce] editing msg:', msgId);
+        const result = await editTelegramMessage(env, chatId, msgId, editHelp, buttons);
+        console.log('[adm_ce] edit result:', JSON.stringify(result));
+        if (!result.ok) {
+          // fallback: send as new message
+          await sendTelegramKB(env, chatId, editHelp, buttons);
+        }
       } else {
         await sendTelegramKB(env, chatId, editHelp, buttons);
       }
