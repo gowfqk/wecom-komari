@@ -1,6 +1,6 @@
 # wecom-komari
 
-企业微信 + Telegram + Komari 监控集成
+企业微信 + Telegram + Komari 监控集成 — 多平台部署方案
 
 基于 [wecom-nezha](https://github.com/gowfqk/wecom-nezha) 项目架构，适配 [Komari](https://github.com/komari-monitor/komari) 监控面板。
 
@@ -8,7 +8,7 @@
 
 ### 监控查询
 - ✅ 企业微信消息推送 & 回调机器人
-- ✅ Telegram Bot 交互（内联键盘）
+- ✅ Telegram Bot 交互（内联键盘、编辑表单）
 - ✅ 节点状态 / 列表 / 详情 / 离线节点查询
 - ✅ Ping 检测（ICMP 延迟 + 丢包率）
 - ✅ 性能排行（CPU / 内存 / 上传 / 下载，切换按钮）
@@ -28,7 +28,9 @@
 - ✅ 记录管理：清空历史记录
 
 ### 交互体验
-- ✅ 中文参数输入（名称=xxx 区域=xxx，自动映射到英文 API 参数）
+- ✅ 中文参数输入（名称=xxx，自动映射到英文 API 参数）
+- ✅ 编辑表单内联键盘（字段按钮，点击填入编辑命令）
+- ✅ 原地编辑消息（editMessageText，不刷屏）
 - ✅ 取消/退出机制（输入 `取消`/`cancel`/`退出`/`q` 退出当前操作）
 - ✅ 命令优先（任何状态下输入 `/help` 等命令立即响应）
 - ✅ 多平台安装命令（Linux / Windows / macOS）
@@ -36,19 +38,46 @@
 ### 通知转发
 - ✅ Komari 通知脚本 `komari-notify.js`（离线/上线/告警 → TG + 企业微信）
 
-## 快速开始
+## 部署方式
 
-### Docker 部署 (推荐)
+本仓库提供三种部署方式：
+
+| 方式 | 部署位置 | 成本 | 功能 | 推荐场景 |
+|------|---------|------|------|---------|
+| Go 服务 | 自有服务器 / Docker / Fly.io | 服务器费用 | 完整（含企业微信回调） | 有服务器的用户 |
+| Cloudflare Workers | CF 边缘网络 | 免费额度 10万请求/天 | 完整 Bot 功能 | 不想管服务器的用户 |
+| 腾讯云函数 (SCF) | 腾讯云 | 免费额度 | 完整 Bot 功能 | 国内用户 |
+
+---
+
+### 方式一：Go 服务部署（推荐）
+
+#### Docker 部署
 
 ```bash
 git clone https://github.com/gowfqk/wecom-komari.git
 cd wecom-komari
 cp .env.example .env
-vi .env
+vi .env                    # 配置环境变量
 docker-compose up -d
 ```
 
-### 环境变量
+#### 直接运行
+
+```bash
+export KOMARI_URL=https://your-komari.example.com
+export KOMARI_API_KEY=your_api_key
+go run .
+```
+
+#### 构建二进制
+
+```bash
+go build -o wecom-komari .
+./wecom-komari
+```
+
+#### 环境变量
 
 | 变量名 | 说明 | 必填 |
 |--------|------|------|
@@ -66,11 +95,63 @@ docker-compose up -d
 | `TELEGRAM_ALLOWED_USERS` | 允许的用户ID列表 | 否 |
 | `GITHUB_PROXY` | GitHub 下载代理（如 `https://ghproxy.com/`） | 否 |
 
-> *`KOMARI_API_KEY` 与 `KOMARI_USERNAME`/`KOMARI_PASSWORD` 二选一
+> \* `KOMARI_API_KEY` 与 `KOMARI_USERNAME`/`KOMARI_PASSWORD` 二选一
 
-### Telegram Bot 命令
+---
 
-#### 查询命令
+### 方式二：Cloudflare Workers 部署
+
+无服务器版本，部署在 Cloudflare 边缘网络。
+
+```bash
+cd cf-workers
+
+# 安装依赖
+npm install
+
+# 配置密钥
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
+npx wrangler secret put SENDKEY
+npx wrangler secret put KOMARI_API_KEY
+
+# 部署
+npm run deploy
+```
+
+设置 Telegram Webhook：
+
+```bash
+curl -X POST "https://api.telegram.org/bot<YOUR_TOKEN>/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://your-worker.workers.dev/telegram/webhook",
+    "secret_token": "your_webhook_secret",
+    "allowed_updates": ["message","callback_query"]
+  }'
+```
+
+完整环境变量见 [`cf-workers/README.md`](cf-workers/README.md)。
+
+---
+
+### 方式三：腾讯云函数 (SCF) 部署
+
+```bash
+cd scf
+# 部署到腾讯云函数
+sls deploy
+```
+
+或通过腾讯云控制台创建函数，上传 `scf/` 目录的代码。
+
+完整说明见 [`scf/README.md`](scf/README.md)。
+
+---
+
+## Telegram Bot 命令
+
+### 查询命令
 
 | 命令 | 说明 |
 |------|------|
@@ -85,7 +166,7 @@ docker-compose up -d
 | `/node <uuid>` | 节点详细信息 |
 | `/help` | 帮助信息 |
 
-#### 管理命令
+### 管理命令
 
 | 命令 | 说明 |
 |------|------|
@@ -97,29 +178,25 @@ docker-compose up -d
 | `/logs` | 审计日志 |
 | `/settings` | 系统设置 |
 
-#### 快捷操作
+### 快捷操作
 
 - 直接输入节点名称 → 查看节点详情
+- 点击节点名 → 查看节点详情（含编辑 / Token / 历史 / 刷新按钮）
+- 点击编辑按钮 → 原地编辑表单（6个字段：名称/分组/区域/权重/公开备注/私有备注）
 - 输入 `取消` / `cancel` / `退出` / `q` → 退出当前操作
 - 任何状态下输入 `/help` 等命令立即响应
 
 ### 企业微信命令
 
-- `状态` / `/status` - 服务器状态概览
-- `列表` / `/list` - 所有节点列表
-- `离线` / `/offline` - 离线节点
-- `排名` / `/rank` - 性能排行
-- `分组` / `/group` - 分组信息
-- `/admin` / `管理` - 管理面板
-- `/admin_clients` / `客户端管理` - 客户端管理
-- `/admin_notify` / `通知管理` - 通知管理
-- `/admin_ping` / `Ping管理` - Ping任务
-- `/admin_tasks` / `远程任务` - 远程任务
-- `/admin_logs` / `日志` - 审计日志
-- `/admin_sessions` / `会话` - 会话管理
-- `/admin_settings` / `设置` - 系统设置
-- `/admin_clear` / `清空记录` - 清空记录
-- 直接输入节点名称 - 查看节点详情
+| 命令 | 说明 |
+|------|------|
+| `状态` / `/status` | 服务器状态概览 |
+| `列表` / `/list` | 所有节点列表 |
+| `离线` / `/offline` | 离线节点 |
+| `排名` / `/rank` | 性能排行 |
+| `分组` / `/group` | 分组信息 |
+| `/admin` / `管理` | 管理面板 |
+| 直接输入节点名称 | 查看节点详情 |
 
 ## 通知转发
 
@@ -134,22 +211,12 @@ curl -X POST "http://localhost:8080/webhook?sendkey=your_key" \
 ```
 
 **请求方式：**
-- `GET` - 连通性检查，返回 `{"status":"ok"}`
-- `POST` - 发送消息
+- `GET` — 连通性检查，返回 `{"status":"ok"}`
+- `POST` — 发送消息
 
-**消息字段（任选其一）：**
-- `text` - 推荐
-- `msg` - 兼容
-- `content` - 兼容
+**消息字段（任选其一）：** `text` / `msg` / `content`
 
-**认证（任选其一）：**
-- JSON body: `{"sendkey": "xxx"}` 或 `{"token": "xxx"}`
-- Query 参数: `?sendkey=xxx` 或 `?token=xxx`
-
-**响应：**
-```json
-{"status": "ok", "sent": true}
-```
+**认证（任选其一）：** JSON body 或 Query 参数：`sendkey` / `token`
 
 **转发目标（环境变量配置）：**
 - Telegram：`TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USERS`
@@ -163,7 +230,11 @@ curl -X POST "http://localhost:8080/webhook?sendkey=your_key" \
 http://your-server:8080/webhook?sendkey=your_key
 ```
 
-或使用 `komari-notify.js` 脚本（见仓库）。
+或使用 `komari-notify.js` 脚本。
+
+### 支持的事件类型
+
+`Offline` / `Online` / `Alert` / `Renew` / `Expire` / `Test`
 
 ## API 接口
 
@@ -183,54 +254,46 @@ curl -X POST http://localhost:8080/telegram/push \
   -d '{"sendkey": "your_key", "chat_id": 123456, "text": "Hello World"}'
 ```
 
-### Komari Webhook
-
-接收 Komari 事件通知并转发到 Telegram + 企业微信。
-
-```bash
-curl -X POST "http://localhost:8080/webhook?sendkey=your_key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "event": "Offline",
-    "nodes": [{"name": "Server-1", "ip": "1.2.3.4", "region": "CN"}],
-    "time": "2024-01-01 12:00:00",
-    "message": "节点离线"
-  }'
-```
-
-**参数说明：**
-- `sendkey` / `token` - 认证密钥（JSON body 或 query 参数）
-
-**支持的事件类型：**
-- `Offline` / `Online` / `Alert` / `Renew` / `Expire` / `Test`
-
-**JSON 字段兼容：**
-- 事件类型：`event` / `type` / `name`
-- 节点列表：`nodes` / `clients`
-- 时间：`time` / `timestamp`
-- 消息：`message` / `msg`
-
-**转发目标（环境变量配置）：**
-- Telegram：`TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USERS`
-- 企业微信：`WECOM_CID` + `WECOM_SECRET` + `WECOM_TOUID`
-
 ### 健康检查
 
 ```bash
 curl http://localhost:8080/healthz
 ```
 
-## 开发
+## 项目结构
 
-```bash
-# 本地运行
-export KOMARI_URL=https://your-komari.example.com
-export KOMARI_API_KEY=your_api_key
-go run .
-
-# 构建
-go build -o wecom-komari .
 ```
+wecom-komari/
+├── main.go                 # Go 服务入口
+├── handlers.go             # Telegram Bot 回调处理
+├── komari.go               # Komari API 交互
+├── types.go                # 数据结构
+├── webhook.go              # Webhook 处理
+├── komari-notify.js        # Komari 通知脚本
+├── Dockerfile              # Docker 构建
+├── docker-compose.yml      # Docker Compose
+├── fly.toml                # Fly.io 配置
+├── cf-workers/             # Cloudflare Workers 版本
+│   ├── src/index.js        # Worker 代码
+│   ├── wrangler.toml       # Wrangler 配置
+│   └── package.json
+└── scf/                    # 腾讯云函数版本
+    ├── index.js
+    ├── serverless.yml
+    └── package.json
+```
+
+## 各版本区别
+
+| 特性 | Go 版本 | CF Workers 版本 | SCF 版本 |
+|------|---------|-----------------|----------|
+| 部署 | 自有服务器 / Docker | CF 边缘网络 | 腾讯云 |
+| 冷启动 | 无 | ~5ms | ~100ms |
+| 状态存储 | 内存 (sync.Map) | KV 存储 | 无（无状态） |
+| 成本 | 服务器费用 | 免费额度 | 免费额度 |
+| 扩展性 | 手动 | 自动 | 自动 |
+| 企业微信回调 | ✅ | ❌ | ❌ |
+| 本地开发 | `go run .` | `wrangler dev` | `sls invoke local` |
 
 ## 与 wecom-nezha 的区别
 
@@ -245,8 +308,8 @@ go build -o wecom-komari .
 
 ## 致谢
 
-- [wecom-nezha](https://github.com/gowfqk/wecom-nezha) - 原始项目架构
-- [Komari](https://github.com/komari-monitor/komari) - 监控面板
+- [wecom-nezha](https://github.com/gowfqk/wecom-nezha) — 原始项目架构
+- [Komari](https://github.com/komari-monitor/komari) — 监控面板
 
 ## 许可证
 
