@@ -699,7 +699,8 @@ async function handleTelegramWebhook(request, env) {
     await answerCallback(env, cb.id, answerText);
     if (!isUserAllowed(env, cb.from.id)) return jsonResponse({ status: 'ok' });
     const chatId = cb.message ? cb.message.chat.id : cb.from.id;
-    await handleCallbackData(env, chatId, cb.data);
+    const msgId = cb.message ? cb.message.message_id : null;
+    await handleCallbackData(env, chatId, msgId, cb.data);
     return jsonResponse({ status: 'ok' });
   }
 
@@ -946,7 +947,7 @@ async function cmdGroupWithButtons(env, chatId) {
 
 // ─── Callback Handler ──────────────────────────────────────
 
-async function handleCallbackData(env, chatId, data) {
+async function handleCallbackData(env, chatId, msgId, data) {
   const colonIdx = data.indexOf(':');
   const act = colonIdx >= 0 ? data.slice(0, colonIdx) : data;
   const param = colonIdx >= 0 ? data.slice(colonIdx + 1) : '';
@@ -1149,20 +1150,25 @@ async function handleCallbackData(env, chatId, data) {
       const c = Array.isArray(data) ? data[0] : data;
       if (!c) { await sendTelegram(env, chatId, '❌ 客户端不存在'); break; }
       const short = param.slice(0, 8);
-      const editHelp = `✏️ *Edit ${c.name || 'client'}*\n\n` +
+      const editHelp = `✏️ *Edit ${c.name || 'client'}* / ${short}\n\n` +
         `Current values:\n` +
         `• name: ${c.name || '-'}\n` +
         `• group: ${c.group || '-'}\n` +
         `• region: ${c.region || '-'}\n` +
         `• public_remark: ${c.public_remark || '-'}\n\n` +
-        `Click a button below to copy the command, change the value and send:`;
-      await sendTelegramKB(env, chatId, editHelp, [
+        `Tap a field button below, type the new value, then send:`;
+      const buttons = [
         [{ text: `📝 name: ${c.name || '-'}`, switch_inline_query_current_chat: `/edit ${short} name=` }],
         [{ text: `📂 group: ${c.group || '-'}`, switch_inline_query_current_chat: `/edit ${short} group=` }],
         [{ text: `🌍 region: ${c.region || '-'}`, switch_inline_query_current_chat: `/edit ${short} region=` }],
         [{ text: `🏷️ public_remark: ${c.public_remark || '-'}`, switch_inline_query_current_chat: `/edit ${short} public_remark=` }],
         [{ text: '📋 Detail', callback_data: `adm_cd:${param}` }, { text: '⬅️ Back', callback_data: 'adm_cl' }],
-      ]);
+      ];
+      if (msgId) {
+        await editTelegramMessage(env, chatId, msgId, editHelp, buttons);
+      } else {
+        await sendTelegramKB(env, chatId, editHelp, buttons);
+      }
       break;
     }
 
@@ -1197,6 +1203,25 @@ async function sendTelegram(env, chatId, text, parseMode = 'Markdown') {
 
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) console.error('[sendTelegram]', resp.status, JSON.stringify(data));
+  return { ok: resp.ok, status: resp.status, data };
+}
+
+async function editTelegramMessage(env, chatId, messageId, text, buttons) {
+  const apiBase = env.TELEGRAM_API_BASE || 'https://api.telegram.org';
+  const body = {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    parse_mode: 'Markdown',
+    reply_markup: { inline_keyboard: buttons },
+  };
+  const resp = await fetch(`${apiBase}/bot${env.TELEGRAM_BOT_TOKEN}/editMessageText`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) console.error('[editTelegramMessage]', resp.status, JSON.stringify(data));
   return { ok: resp.ok, status: resp.status, data };
 }
 

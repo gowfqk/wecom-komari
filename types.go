@@ -160,6 +160,14 @@ type TgMessage struct {
 	ReplyMarkup *InlineKeyboard `json:"reply_markup,omitempty"`
 }
 
+type TgEditMessage struct {
+	ChatID    int64            `json:"chat_id"`
+	MessageID int64            `json:"message_id"`
+	Text      string           `json:"text"`
+	ParseMode string           `json:"parse_mode,omitempty"`
+	ReplyMarkup *InlineKeyboard `json:"reply_markup,omitempty"`
+}
+
 type TgUpdate struct {
 	UpdateID      int64           `json:"update_id"`
 	Message       *TgMsg          `json:"message,omitempty"`

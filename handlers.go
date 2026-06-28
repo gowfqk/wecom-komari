@@ -506,6 +506,11 @@ func handleTgCallback(cb *TgCallback) {
 	if len(parts) > 1 {
 		param = parts[1]
 	}
+	// Extract message_id for in-place editing
+	var msgID int64
+	if cb.Message != nil {
+		msgID = cb.Message.MessageID
+	}
 	switch act {
 	case "cmd":
 		handleTgCmd(uid, param)
@@ -578,7 +583,7 @@ func handleTgCallback(cb *TgCallback) {
 	case "adm_cas":
 		handleTgAdminClientAddSubmit(uid, param)
 	case "adm_ce":
-		handleTgAdminClientEditForm(uid, param)
+		handleTgAdminClientEditForm(uid, param, msgID)
 	case "adm_ces":
 		handleTgAdminClientEditSubmit(uid, param)
 	case "adm_nloe":
@@ -681,6 +686,14 @@ func tgSendKB(chatID int64, text string, btns [][]InlineButton) {
 		msg.ReplyMarkup = &InlineKeyboard{InlineKeyboard: btns}
 	}
 	httpDo("POST", TelegramAPIBase+"/bot"+TelegramBotToken+"/sendMessage", msg, nil)
+}
+
+func tgEditKB(chatID int64, msgID int64, text string, btns [][]InlineButton) {
+	msg := TgEditMessage{ChatID: chatID, MessageID: msgID, Text: text, ParseMode: "Markdown"}
+	if len(btns) > 0 {
+		msg.ReplyMarkup = &InlineKeyboard{InlineKeyboard: btns}
+	}
+	httpDo("POST", TelegramAPIBase+"/bot"+TelegramBotToken+"/editMessageText", msg, nil)
 }
 
 func answerCB(id string) {
@@ -2059,7 +2072,7 @@ func handleTgAdminClientAddSubmit(chatID int64, param string) {
 // 2. Client Management - Edit Client
 // ============================================================
 
-func handleTgAdminClientEditForm(chatID int64, uuid string) {
+func handleTgAdminClientEditForm(chatID int64, uuid string, msgID int64) {
 	setUserState(chatID, "edit_client:"+uuid)
 	client, err := adminGetClient(uuid)
 	if err != nil {
@@ -2070,24 +2083,29 @@ func handleTgAdminClientEditForm(chatID int64, uuid string) {
 	if len(uuid) > 8 {
 		short = uuid[:8]
 	}
-	tgSendKB(chatID, fmt.Sprintf("✏️ *Edit Client: %s*\n\n"+
+	text := fmt.Sprintf("✏️ *Edit Client: %s* / %s\n\n"+
 		"📋 Current Info:\n"+
 		"  name: %s\n  region: %s\n  group: %s\n  weight: %d\n  hidden: %v\n"+
 		"  tags: %s\n  public_remark: %s\n  remark: %s\n\n"+
-		"💡 Click a button below to copy the command, change the value after = and send\n"+
+		"💡 Tap a button below to copy the command, change the value after = and send\n"+
 		"💡 Or directly type `name=NewName` to modify\n\n"+
 		"⚠️ Type `cancel` to exit",
-		client.Name, client.Name, client.Region, client.Group, client.Weight, client.Hidden,
-		client.Tags, client.PublicRemark, client.Remark),
-		[][]InlineButton{
-			{{Text: "📝 name: " + client.Name, SwitchInlineQueryCurrentChat: "edit " + short + " name="}},
-			{{Text: "🌍 region: " + client.Region, SwitchInlineQueryCurrentChat: "edit " + short + " region="}},
-			{{Text: "📂 group: " + client.Group, SwitchInlineQueryCurrentChat: "edit " + short + " group="}},
-			{{Text: "⚖️ weight: " + fmt.Sprintf("%d", client.Weight), SwitchInlineQueryCurrentChat: "edit " + short + " weight="}},
-			{{Text: "🏷️ public_remark: " + client.PublicRemark, SwitchInlineQueryCurrentChat: "edit " + short + " public_remark="}},
-			{{Text: "🔒 remark: " + client.Remark, SwitchInlineQueryCurrentChat: "edit " + short + " remark="}},
-			{{Text: "⬅️ Back", CallbackData: "adm_cd:" + uuid}},
-		})
+		client.Name, short, client.Name, client.Region, client.Group, client.Weight, client.Hidden,
+		client.Tags, client.PublicRemark, client.Remark)
+	btns := [][]InlineButton{
+		{{Text: "📝 name: " + client.Name, SwitchInlineQueryCurrentChat: "edit " + short + " name="}},
+		{{Text: "🌍 region: " + client.Region, SwitchInlineQueryCurrentChat: "edit " + short + " region="}},
+		{{Text: "📂 group: " + client.Group, SwitchInlineQueryCurrentChat: "edit " + short + " group="}},
+		{{Text: "⚖️ weight: " + fmt.Sprintf("%d", client.Weight), SwitchInlineQueryCurrentChat: "edit " + short + " weight="}},
+		{{Text: "🏷️ public_remark: " + client.PublicRemark, SwitchInlineQueryCurrentChat: "edit " + short + " public_remark="}},
+		{{Text: "🔒 remark: " + client.Remark, SwitchInlineQueryCurrentChat: "edit " + short + " remark="}},
+		{{Text: "⬅️ Back", CallbackData: "adm_cd:" + uuid}},
+	}
+	if msgID > 0 {
+		tgEditKB(chatID, msgID, text, btns)
+	} else {
+		tgSendKB(chatID, text, btns)
+	}
 }
 
 func handleTgAdminClientEditSubmit(chatID int64, param string) {
