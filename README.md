@@ -46,7 +46,6 @@
 |------|---------|------|------|---------|
 | Go 服务 | 自有服务器 / Docker / Fly.io | 服务器费用 | 完整（含企业微信回调） | 有服务器的用户 |
 | Cloudflare Workers | CF 边缘网络 | 免费额度 10万请求/天 | 完整 Bot 功能 | 不想管服务器的用户 |
-| 腾讯云函数 (SCF) | 腾讯云 | 免费额度 | 完整 Bot 功能 | 国内用户 |
 
 ---
 
@@ -132,20 +131,6 @@ curl -X POST "https://api.telegram.org/bot<YOUR_TOKEN>/setWebhook" \
 ```
 
 完整环境变量见 [`cf-workers/README.md`](cf-workers/README.md)。
-
----
-
-### 方式三：腾讯云函数 (SCF) 部署
-
-```bash
-cd scf
-# 部署到腾讯云函数
-sls deploy
-```
-
-或通过腾讯云控制台创建函数，上传 `scf/` 目录的代码。
-
-完整说明见 [`scf/README.md`](scf/README.md)。
 
 ---
 
@@ -277,10 +262,6 @@ wecom-komari/
 │   ├── src/index.js        # Worker 代码
 │   ├── wrangler.toml       # Wrangler 配置
 │   └── package.json
-└── scf/                    # 腾讯云函数版本
-    ├── index.js
-    ├── serverless.yml
-    └── package.json
 ```
 
 ## 各版本区别

@@ -1,7 +1,0 @@
-{
-  "name": "wecom-komari-scf",
-  "version": "1.0.0",
-  "description": "wecom-komari Telegram bot for Tencent Cloud Function (SCF)",
-  "main": "index.js",
-  "type": "commonjs"
-}
