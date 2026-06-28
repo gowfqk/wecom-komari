@@ -148,11 +148,15 @@ func handleTgMsg(m *TgMsg) {
 		}
 	}
 
-	// Telegram 文本命令：编辑 节点名 key=value
-	if strings.HasPrefix(txt, "编辑 ") {
-		parts := strings.SplitN(strings.TrimSpace(txt[len("编辑 "):]), " ", 2)
+	// Telegram 文本命令：edit 节点名 key=value
+	if strings.HasPrefix(txt, "edit ") || strings.HasPrefix(txt, "编辑 ") {
+		prefix := "edit "
+		if strings.HasPrefix(txt, "编辑 ") {
+			prefix = "编辑 "
+		}
+		parts := strings.SplitN(strings.TrimSpace(txt[len(prefix):]), " ", 2)
 		if len(parts) < 2 {
-			tgSend(chatID, "❌ 格式错误\n\n格式: 编辑 节点名 key=value")
+			tgSend(chatID, "❌ 格式错误\n\n格式: edit 节点名 key=value")
 			return
 		}
 		name := parts[0]
@@ -953,8 +957,8 @@ func processWecomMsg(content string) string {
 			"执行 命令 - 执行远程命令\n" +
 			"清空记录 [type=load] - 清空记录\n" +
 			"删除会话 [ID] - 删除会话\n\n" +
-			"💡 支持中文参数名:\n" +
-			"名称/区域/分组/标签/权重/隐藏/价格/货币/计费周期/备注/私有备注/流量限制\n\n" +
+			"💡 可用参数 (英文):\n" +
+			"name/region/group/tags/weight/hidden/price/currency/billing_cycle/public_remark/remark/traffic_limit/traffic_limit_type\n\n" +
 			"直接输入节点名称快速查看"
 	case "状态", "状态查询":
 		nodes, err := getNodeList()
@@ -2007,13 +2011,13 @@ func handleTgAdminClearAllRecords(chatID int64) {
 
 func handleTgAdminClientAddForm(chatID int64) {
 	setUserState(chatID, "add_client")
-	tgSendKB(chatID, "➕ *添加客户端*\n\n"+
-		"📝 *请按以下格式发送参数:*\n"+
-		"```\n名称=节点名称\n区域=🇨🇳\n分组=国内\n权重=0\n隐藏=false\n```\n\n"+
-		"✅ *必填:* 名称\n"+
-		"💡 *可选:* 区域, 分组, 标签, 权重, 隐藏, 价格, 货币, 计费周期, 备注, 私有备注, 流量限制, 流量限制类型\n\n"+
-		"⚠️ 只需填写要设置的参数，其他使用默认值\n\n💡 随时输入 `取消` 退出",
-		[][]InlineButton{{{Text: "❌ 取消", CallbackData: "adm_cl"}}})
+	tgSendKB(chatID, "➕ *Add Client*\n\n"+
+		"📝 *Send parameters in this format:*\n"+
+		"```\nname=NodeName\nregion=🇨🇳\ngroup=home\nweight=0\nhidden=false\n```\n\n"+
+		"✅ *Required:* name\n"+
+		"💡 *Optional:* region, group, tags, weight, hidden, price, currency, billing_cycle, public_remark, remark, traffic_limit, traffic_limit_type\n\n"+
+		"⚠️ Only fill in the params you want to set, others use default\n\n💡 Type `cancel` to exit",
+		[][]InlineButton{{{Text: "❌ Cancel", CallbackData: "adm_cl"}}})
 }
 
 func handleTgAdminClientAddSubmit(chatID int64, param string) {
@@ -2066,23 +2070,23 @@ func handleTgAdminClientEditForm(chatID int64, uuid string) {
 	if len(uuid) > 8 {
 		short = uuid[:8]
 	}
-	tgSendKB(chatID, fmt.Sprintf("✏️ *编辑客户端: %s*\n\n"+
-		"📋 当前信息:\n"+
-		"  名称: %s\n  区域: %s\n  分组: %s\n  权重: %d\n  隐藏: %v\n"+
-		"  标签: %s\n  备注: %s\n  私有备注: %s\n\n"+
-		"💡 点击下方按钮复制命令，修改 = 后面的值发送即可\n"+
-		"💡 也可以直接输入 `名称=新名称` 格式修改\n\n"+
-		"⚠️ 随时输入 `取消` 退出",
+	tgSendKB(chatID, fmt.Sprintf("✏️ *Edit Client: %s*\n\n"+
+		"📋 Current Info:\n"+
+		"  name: %s\n  region: %s\n  group: %s\n  weight: %d\n  hidden: %v\n"+
+		"  tags: %s\n  public_remark: %s\n  remark: %s\n\n"+
+		"💡 Click a button below to copy the command, change the value after = and send\n"+
+		"💡 Or directly type `name=NewName` to modify\n\n"+
+		"⚠️ Type `cancel` to exit",
 		client.Name, client.Name, client.Region, client.Group, client.Weight, client.Hidden,
 		client.Tags, client.PublicRemark, client.Remark),
 		[][]InlineButton{
-			{{Text: "📝 名称: " + client.Name, SwitchInlineQueryCurrentChat: "编辑 " + short + " 名称="}},
-			{{Text: "🌍 区域: " + client.Region, SwitchInlineQueryCurrentChat: "编辑 " + short + " 区域="}},
-			{{Text: "📂 分组: " + client.Group, SwitchInlineQueryCurrentChat: "编辑 " + short + " 分组="}},
-			{{Text: "⚖️ 权重: " + fmt.Sprintf("%d", client.Weight), SwitchInlineQueryCurrentChat: "编辑 " + short + " 权重="}},
-			{{Text: "🏷️ 备注: " + client.PublicRemark, SwitchInlineQueryCurrentChat: "编辑 " + short + " 备注="}},
-			{{Text: "🔒 私有备注: " + client.Remark, SwitchInlineQueryCurrentChat: "编辑 " + short + " 私有备注="}},
-			{{Text: "⬅️ 返回", CallbackData: "adm_cd:" + uuid}},
+			{{Text: "📝 name: " + client.Name, SwitchInlineQueryCurrentChat: "edit " + short + " name="}},
+			{{Text: "🌍 region: " + client.Region, SwitchInlineQueryCurrentChat: "edit " + short + " region="}},
+			{{Text: "📂 group: " + client.Group, SwitchInlineQueryCurrentChat: "edit " + short + " group="}},
+			{{Text: "⚖️ weight: " + fmt.Sprintf("%d", client.Weight), SwitchInlineQueryCurrentChat: "edit " + short + " weight="}},
+			{{Text: "🏷️ public_remark: " + client.PublicRemark, SwitchInlineQueryCurrentChat: "edit " + short + " public_remark="}},
+			{{Text: "🔒 remark: " + client.Remark, SwitchInlineQueryCurrentChat: "edit " + short + " remark="}},
+			{{Text: "⬅️ Back", CallbackData: "adm_cd:" + uuid}},
 		})
 }
 
@@ -2543,22 +2547,6 @@ func handleTgAdminRemoveSession(chatID int64, id string) {
 // ============================================================
 
 func parseKeyValueParams(s string) map[string]interface{} {
-	// Chinese to English parameter name mapping
-	cnToEn := map[string]string{
-		"名称":     "name",
-		"区域":     "region",
-		"分组":     "group",
-		"标签":     "tags",
-		"权重":     "weight",
-		"隐藏":     "hidden",
-		"价格":     "price",
-		"货币":     "currency",
-		"计费周期":   "billing_cycle",
-		"备注":     "public_remark",
-		"私有备注":   "remark",
-		"流量限制":   "traffic_limit",
-		"流量限制类型": "traffic_limit_type",
-	}
 	params := make(map[string]interface{})
 	lines := strings.Split(s, "\n")
 	for _, line := range lines {
@@ -2570,10 +2558,6 @@ func parseKeyValueParams(s string) map[string]interface{} {
 		if len(parts) == 2 {
 			key := strings.TrimSpace(parts[0])
 			val := strings.TrimSpace(parts[1])
-			// Convert Chinese key to English if mapped
-			if en, ok := cnToEn[key]; ok {
-				key = en
-			}
 			params[key] = val
 		}
 	}
