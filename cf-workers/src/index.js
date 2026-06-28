@@ -552,13 +552,13 @@ async function cmdAdminPingTasks(env) {
  */
 async function handleEditCommand(env, chatId, args) {
   if (!args) {
-    await sendTelegram(env, chatId, '用法: `/edit uuid前缀 field=value`\n\n例如:\n`/edit 26f3078e name=新名称`\n`/edit 26f3078e group=新分组 region=CN`\n\n可用字段: name, group, region, public_remark');
+    await sendTelegram(env, chatId, 'Usage: `/edit uuid_prefix field=value`\n\nExample:\n`/edit 26f3078e name=NewName`\n`/edit 26f3078e group=home region=CN`\n\nAvailable fields: name, group, region, public_remark');
     return;
   }
 
   const parts = args.trim().split(/\s+/);
   if (parts.length < 2) {
-    await sendTelegram(env, chatId, '❌ 参数不足\n\n用法: `/edit uuid前缀 field=value`');
+    await sendTelegram(env, chatId, `❌ 字段不足\n\n用法: \`/edit uuid_prefix field=value\``);
     return;
   }
 
@@ -573,7 +573,7 @@ async function handleEditCommand(env, chatId, args) {
     const key = parts[i].slice(0, eqIdx);
     const val = parts[i].slice(eqIdx + 1);
     if (!['name', 'group', 'region', 'public_remark'].includes(key)) {
-      await sendTelegram(env, chatId, `❌ 不支持的字段: ${key}\n\n可用字段: name, group, region, public_remark`);
+      await sendTelegram(env, chatId, `❌ 不支持的字段: ${key}\n\n可用字段 (English): name, group, region, public_remark`);
       return;
     }
     params[key] = val;
@@ -721,7 +721,7 @@ const HELP_TEXT =
   '/group - 节点分组\n\n' +
   '*管理命令:*\n' +
   '/admin - 管理员面板\n' +
-  '/edit uuid name=名称 - 编辑客户端\n' +
+  '/edit uuid_prefix name=Name - Edit client\n' +
   '/notify - 通知管理\n' +
   '/ping_admin - Ping任务管理\n' +
   '/task - 远程任务\n' +
@@ -1144,19 +1144,19 @@ async function handleCallbackData(env, chatId, data) {
       const c = Array.isArray(data) ? data[0] : data;
       if (!c) { await sendTelegram(env, chatId, '❌ 客户端不存在'); break; }
       const short = param.slice(0, 8);
-      const editHelp = `✏️ *编辑 ${c.name || '客户端'}*\n\n` +
-        `当前值:\n` +
-        `• 名称: ${c.name || '-'}\n` +
-        `• 分组: ${c.group || '-'}\n` +
-        `• 地区: ${c.region || '-'}\n` +
-        `• 备注: ${c.public_remark || '-'}\n\n` +
-        `点击下方按钮复制命令，修改值后发送:`;
+      const editHelp = `✏️ *Edit ${c.name || 'client'}*\n\n` +
+        `Current values:\n` +
+        `• name: ${c.name || '-'}\n` +
+        `• group: ${c.group || '-'}\n` +
+        `• region: ${c.region || '-'}\n` +
+        `• public_remark: ${c.public_remark || '-'}\n\n` +
+        `Click a button below to copy the command, change the value and send:`;
       await sendTelegramKB(env, chatId, editHelp, [
-        [{ text: `📝 名称: ${c.name || '-'}`, switch_inline_query_current_chat: `/edit ${short} name=` }],
-        [{ text: `📂 分组: ${c.group || '-'}`, switch_inline_query_current_chat: `/edit ${short} group=` }],
-        [{ text: `🌍 地区: ${c.region || '-'}`, switch_inline_query_current_chat: `/edit ${short} region=` }],
-        [{ text: `📝 备注: ${c.public_remark || '-'}`, switch_inline_query_current_chat: `/edit ${short} public_remark=` }],
-        [{ text: '📋 详情', callback_data: `adm_cd:${param}` }, { text: '⬅️ 返回列表', callback_data: 'adm_cl' }],
+        [{ text: `📝 name: ${c.name || '-'}`, switch_inline_query_current_chat: `/edit ${short} name=` }],
+        [{ text: `📂 group: ${c.group || '-'}`, switch_inline_query_current_chat: `/edit ${short} group=` }],
+        [{ text: `🌍 region: ${c.region || '-'}`, switch_inline_query_current_chat: `/edit ${short} region=` }],
+        [{ text: `🏷️ public_remark: ${c.public_remark || '-'}`, switch_inline_query_current_chat: `/edit ${short} public_remark=` }],
+        [{ text: '📋 Detail', callback_data: `adm_cd:${param}` }, { text: '⬅️ Back', callback_data: 'adm_cl' }],
       ]);
       break;
     }
