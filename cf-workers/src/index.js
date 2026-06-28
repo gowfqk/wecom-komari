@@ -695,7 +695,8 @@ async function handleTelegramWebhook(request, env) {
 
   if (update.callback_query) {
     const cb = update.callback_query;
-    await answerCallback(env, cb.id);
+    const answerText = cb.data.startsWith('adm_ce:') ? '✏️ 正在加载编辑表单...' : '';
+    await answerCallback(env, cb.id, answerText);
     if (!isUserAllowed(env, cb.from.id)) return jsonResponse({ status: 'ok' });
     const chatId = cb.message ? cb.message.chat.id : cb.from.id;
     await handleCallbackData(env, chatId, cb.data);
@@ -854,6 +855,7 @@ async function handleMessage(env, message) {
           const result = await cmdNode(env, found.uuid);
           if (result) {
             await sendTelegramKB(env, chatId, result.text, [
+              [{ text: '✏️ 编辑', callback_data: `adm_ce:${found.uuid}` }, { text: '🔑 Token', callback_data: `adm_ct:${found.uuid}` }],
               [{ text: '📈 历史', callback_data: `history:${found.uuid}` }, { text: '🔄 刷新', callback_data: `node:${found.uuid}` }],
               [{ text: '📋 返回列表', callback_data: 'cmd:list' }],
             ]);
@@ -871,6 +873,7 @@ async function handleMessage(env, message) {
     const result = await cmdNode(env, found.uuid);
     if (result) {
       await sendTelegramKB(env, chatId, result.text, [
+        [{ text: '✏️ 编辑', callback_data: `adm_ce:${found.uuid}` }, { text: '🔑 Token', callback_data: `adm_ct:${found.uuid}` }],
         [{ text: '📈 历史', callback_data: `history:${found.uuid}` }, { text: '🔄 刷新', callback_data: `node:${found.uuid}` }],
         [{ text: '📋 返回列表', callback_data: 'cmd:list' }],
       ]);
@@ -1139,7 +1142,9 @@ async function handleCallbackData(env, chatId, data) {
       break;
 
     case 'adm_ce': {
+      console.log('[adm_ce] param:', param);
       const data = await komariAdminReq(env, 'GET', `/api/admin/client/${param}`);
+      console.log('[adm_ce] data:', JSON.stringify(data));
       if (!data) { await sendTelegram(env, chatId, '❌ 无法获取客户端'); break; }
       const c = Array.isArray(data) ? data[0] : data;
       if (!c) { await sendTelegram(env, chatId, '❌ 客户端不存在'); break; }
@@ -1168,12 +1173,14 @@ async function handleCallbackData(env, chatId, data) {
 
 // ─── Telegram API ──────────────────────────────────────────
 
-async function answerCallback(env, callbackId) {
+async function answerCallback(env, callbackId, text = '') {
   const apiBase = env.TELEGRAM_API_BASE || 'https://api.telegram.org';
+  const body = { callback_query_id: callbackId };
+  if (text) body.text = text;
   await fetch(`${apiBase}/bot${env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ callback_query_id: callbackId }),
+    body: JSON.stringify(body),
   });
 }
 
