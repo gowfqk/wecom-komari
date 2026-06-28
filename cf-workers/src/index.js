@@ -1150,13 +1150,13 @@ async function handleCallbackData(env, chatId, msgId, data) {
       const c = Array.isArray(data) ? data[0] : data;
       if (!c) { await sendTelegram(env, chatId, '❌ 客户端不存在'); break; }
       const short = param.slice(0, 8);
-      const editHelp = `✏️ *Edit ${c.name || 'client'}* / ${short}\n\n` +
-        `Current values:\n` +
+      const editHelp = `✏️ *编辑 ${c.name || '客户端'}* / ${short}\n\n` +
+        `当前值:\n` +
         `• name: ${c.name || '-'}\n` +
         `• group: ${c.group || '-'}\n` +
         `• region: ${c.region || '-'}\n` +
         `• \`public_remark\`: ${c.public_remark || '-'}\n\n` +
-        `Tap a field button below, type the new value, then send:`;
+        `点击下方按钮复制命令，修改 = 后面的值后发送:`;
       const buttons = [
         [{ text: `📝 name: ${c.name || '-'}`, switch_inline_query_current_chat: `/edit ${short} name=` }],
         [{ text: `📂 group: ${c.group || '-'}`, switch_inline_query_current_chat: `/edit ${short} group=` }],

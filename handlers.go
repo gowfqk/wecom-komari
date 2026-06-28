@@ -2083,13 +2083,13 @@ func handleTgAdminClientEditForm(chatID int64, uuid string, msgID int64) {
 	if len(uuid) > 8 {
 		short = uuid[:8]
 	}
-	text := fmt.Sprintf("✏️ *Edit Client: %s* / %s\n\n"+
-		"📋 Current Info:\n"+
+	text := fmt.Sprintf("✏️ *编辑 %s* / %s\n\n"+
+		"当前值:\n"+
 		"  name: %s\n  region: %s\n  group: %s\n  weight: %d\n  hidden: %v\n"+
 		"  tags: %s\n  `public_remark`: %s\n  remark: %s\n\n"+
-		"💡 Tap a button below to copy the command, change the value after = and send\n"+
-		"💡 Or directly type `name=NewName` to modify\n\n"+
-		"⚠️ Type `cancel` to exit",
+		"💡 点击下方按钮复制命令，修改 = 后面的值后发送\n"+
+		"💡 或者直接输入 `name=NewName` 修改\n\n"+
+		"⚠️ 输入 `cancel` 退出编辑",
 		client.Name, short, client.Name, client.Region, client.Group, client.Weight, client.Hidden,
 		client.Tags, client.PublicRemark, client.Remark)
 	btns := [][]InlineButton{
