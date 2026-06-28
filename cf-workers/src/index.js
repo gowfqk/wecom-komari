@@ -1155,7 +1155,7 @@ async function handleCallbackData(env, chatId, msgId, data) {
         `• name: ${c.name || '-'}\n` +
         `• group: ${c.group || '-'}\n` +
         `• region: ${c.region || '-'}\n` +
-        `• public_remark: ${c.public_remark || '-'}\n\n` +
+        `• \`public_remark\`: ${c.public_remark || '-'}\n\n` +
         `Tap a field button below, type the new value, then send:`;
       const buttons = [
         [{ text: `📝 name: ${c.name || '-'}`, switch_inline_query_current_chat: `/edit ${short} name=` }],

@@ -2086,7 +2086,7 @@ func handleTgAdminClientEditForm(chatID int64, uuid string, msgID int64) {
 	text := fmt.Sprintf("✏️ *Edit Client: %s* / %s\n\n"+
 		"📋 Current Info:\n"+
 		"  name: %s\n  region: %s\n  group: %s\n  weight: %d\n  hidden: %v\n"+
-		"  tags: %s\n  public_remark: %s\n  remark: %s\n\n"+
+		"  tags: %s\n  `public_remark`: %s\n  remark: %s\n\n"+
 		"💡 Tap a button below to copy the command, change the value after = and send\n"+
 		"💡 Or directly type `name=NewName` to modify\n\n"+
 		"⚠️ Type `cancel` to exit",
