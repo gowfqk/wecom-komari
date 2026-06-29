@@ -868,6 +868,21 @@ async function handleMessage(env, message) {
     return;
   }
 
+  // Non-command text: check for edit command (from switch_inline_query buttons)
+  let checkText = text;
+  // Strip @botname prefix if present (from switch_inline_query_current_chat)
+  if (checkText.includes(' ')) {
+    const firstWord = checkText.split(' ')[0];
+    if (firstWord.startsWith('@')) {
+      checkText = checkText.slice(firstWord.length + 1);
+    }
+  }
+  if (checkText.startsWith('/edit ') || checkText.startsWith('edit ')) {
+    const args = checkText.replace(/^\/(edit|edit)\s+/, '').trim();
+    await handleEditCommand(env, chatId, args);
+    return;
+  }
+
   // Non-command text: try matching as node name
   const found = await findNodeByName(env, text);
   if (found) {
