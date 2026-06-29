@@ -84,6 +84,11 @@ func handleTgMsg(m *TgMsg) {
 	chatID := m.Chat.ID
 	txt := strings.TrimSpace(m.Text)
 
+	// Strip @botname prefix if present (from switch_inline_query_current_chat buttons)
+	if idx := strings.Index(txt, " "); idx > 0 && txt[0] == '@' {
+		txt = txt[idx+1:]
+	}
+
 	// Commands always take priority over state input
 	if strings.HasPrefix(txt, "/") {
 		clearUserState(chatID)
