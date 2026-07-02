@@ -715,7 +715,19 @@ func tgSendKB(chatID int64, text string, btns [][]InlineButton) {
 	if len(btns) > 0 {
 		msg.ReplyMarkup = &InlineKeyboard{InlineKeyboard: btns}
 	}
-	httpDo("POST", TelegramAPIBase+"/bot"+TelegramBotToken+"/sendMessage", msg, nil)
+	resp, err := httpDo("POST", TelegramAPIBase+"/bot"+TelegramBotToken+"/sendMessage", msg, nil)
+	if err != nil {
+		logger.Printf("tgSendKB error: chatID=%d err=%v", chatID, err)
+	} else if len(resp) > 0 {
+		// Check for Telegram API error
+		var apiResp struct {
+			OK          bool   `json:"ok"`
+			Description string `json:"description"`
+		}
+		if json.Unmarshal(resp, &apiResp) == nil && !apiResp.OK {
+			logger.Printf("tgSendKB API error: chatID=%d desc=%s", chatID, apiResp.Description)
+		}
+	}
 }
 
 func tgEditKB(chatID int64, msgID int64, text string, btns [][]InlineButton) {
