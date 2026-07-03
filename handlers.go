@@ -237,7 +237,7 @@ func handleTgCmd(chatID int64, cmd string) {
 			"/admin - 管理员面板\n"+
 			"/new 名称 - 添加客户端\n"+
 			"/notify - 通知管理\n"+
-			"/ping_admin - Ping任务管理\n"+
+			"/ping\\_admin - Ping任务管理\n"+
 			"/task - 远程任务\n"+
 			"/logs - 审计日志\n"+
 			"/settings - 设置\n"+
