@@ -1107,12 +1107,12 @@ func processWecomMsg(content string) string {
 		switch len(ns) {
 		case 1:
 			// 使用 admin API 获取完整信息（包括私有备注）
-			node := ns[0]
+			node := &ns[0]
 			if adminNode, err := adminGetClient(ns[0].UUID); err == nil {
 				node = adminNode
 			}
 			rt, _ := getNodeRealtime(node.UUID)
-			return fmtNodeStatus(&node, rt)
+			return fmtNodeStatus(node, rt)
 		case 0:
 			return fmt.Sprintf("未找到节点: %s", name)
 		default:
@@ -1127,7 +1127,7 @@ func processWecomMsg(content string) string {
 
 	// Token 节点名 (also accepts legacy "客户端 Token 节点名")
 	var tokenName string
-	if n, ok := matchCmdPrefix(lower, "token"); ok {
+	if _, ok := matchCmdPrefix(lower, "token"); ok {
 		tokenName = strings.TrimSpace(content[len("token "):])
 	} else if n, ok := matchCmdPrefix(lower, "客户端 token"); ok {
 		tokenName = n
@@ -1311,7 +1311,7 @@ func processWecomMsg(content string) string {
 	if s, ok := matchCmdPrefix(content, "Ping添加"); ok {
 		pingAddParamStr = s
 		pingAddFound = true
-	} else if s, ok := matchCmdPrefix(lower, "ping添加"); ok {
+	} else if _, ok := matchCmdPrefix(lower, "ping添加"); ok {
 		pingAddParamStr = strings.TrimSpace(content[len("ping添加 "):])
 		pingAddFound = true
 	}
@@ -1334,7 +1334,7 @@ func processWecomMsg(content string) string {
 	if s, ok := matchCmdPrefix(content, "Ping编辑"); ok {
 		pingEditArgStr = s
 		pingEditFound = true
-	} else if s, ok := matchCmdPrefix(lower, "ping编辑"); ok {
+	} else if _, ok := matchCmdPrefix(lower, "ping编辑"); ok {
 		pingEditArgStr = strings.TrimSpace(content[len("ping编辑 "):])
 		pingEditFound = true
 	}
@@ -1447,7 +1447,7 @@ func processWecomMsg(content string) string {
 		if err != nil {
 			return "❌ 获取详情失败: " + err.Error()
 		}
-		return fmtAdminClientDetail(&client)
+		return fmtAdminClientDetail(client)
 	}
 
 	// 默认：尝试匹配节点名
@@ -1455,12 +1455,12 @@ func processWecomMsg(content string) string {
 	switch len(ns) {
 	case 1:
 		// 使用 admin API 获取完整信息（包括私有备注）
-		node := ns[0]
+		node := &ns[0]
 		if adminNode, err := adminGetClient(ns[0].UUID); err == nil {
 			node = adminNode
 		}
 		rt, _ := getNodeRealtime(node.UUID)
-		return fmtNodeStatus(&node, rt)
+		return fmtNodeStatus(node, rt)
 	case 0:
 		return fmt.Sprintf("未找到: %s\n\n发送 帮助 查看可用命令", content)
 	default:
