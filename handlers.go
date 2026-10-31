@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Telegram user state tracking for multi-step operations
@@ -858,6 +859,34 @@ type WecomCallbackXML struct {
 	Encrypt      string   `xml:"Encrypt"`
 }
 
+// wecomMsgSeen 记录已处理的企微回调 MsgId，防止超时重发导致重复回复
+var (
+	wecomSeenMu sync.Mutex
+	wecomSeen   = make(map[int64]time.Time)
+)
+
+// wecomMsgDuplicate 报告该 MsgId 是否已在 TTL 内处理过；首次遇到则记录并返回 false
+func wecomMsgDuplicate(msgID int64) bool {
+	if msgID == 0 {
+		return false
+	}
+	wecomSeenMu.Lock()
+	defer wecomSeenMu.Unlock()
+	now := time.Now()
+	if len(wecomSeen) > 1024 { // 惰性清理过期记录，防止无界增长
+		for k, t := range wecomSeen {
+			if now.Sub(t) > 30*time.Minute {
+				delete(wecomSeen, k)
+			}
+		}
+	}
+	if t, ok := wecomSeen[msgID]; ok && now.Sub(t) < 30*time.Minute {
+		return true
+	}
+	wecomSeen[msgID] = now
+	return false
+}
+
 func wecomCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
@@ -902,32 +931,45 @@ func wecomCallbackHandler(w http.ResponseWriter, r *http.Request) {
 			xml.Unmarshal([]byte(decrypted), &decMsg)
 			content = decMsg.Content
 			msg.FromUserName = decMsg.FromUserName
+			msg.MsgId = decMsg.MsgId // 密文模式下 MsgId 在解密后的 XML 里
 			logger.Printf("[WecomCallback] Decrypted content: %s, from: %s", content, msg.FromUserName)
 		}
-		if content != "" {
-			reply := processWecomMsg(content)
-			logger.Printf("[WecomCallback] Reply (len=%d): %s", len(reply), reply[:min(200, len(reply))])
-			if reply != "" {
-				logger.Printf("[WecomCallback] Sending reply via API to %s", msg.FromUserName)
-				// 异步发送回复，不阻塞回调响应
-				go func(toUser, replyContent string) {
-					token, err := getWecomAccessToken()
-					if err != nil {
-						logger.Printf("[WecomCallback] Get access token failed: %v", err)
-						return
-					}
-					wd := WecomMsg{ToUser: toUser, MsgType: "text", AgentId: WecomAid}
-					wd.Text.Content = replyContent
-					resp, err := httpDo("POST", fmt.Sprintf(SendMsgURL, token), wd, nil)
-					if err != nil {
-						logger.Printf("[WecomCallback] Send failed: %v", err)
-					} else {
-						logger.Printf("[WecomCallback] Reply sent to %s, resp: %s", toUser, string(resp))
-					}
-				}(msg.FromUserName, reply)
-			}
+		// 企业微信回调 5s 未应答会重发同一消息；先按 MsgId 去重，避免重复回复
+		if wecomMsgDuplicate(msg.MsgId) {
+			logger.Printf("[WecomCallback] Duplicate MsgId %d ignored", msg.MsgId)
+			w.Write([]byte("success"))
+			return
 		}
+		// 立即应答，处理与回复放到后台执行，避免 Komari 查询慢触发企微超时重发
 		w.Write([]byte("success"))
+		if content != "" {
+			go func(toUser, content string) {
+				defer func() {
+					if e := recover(); e != nil {
+						logger.Printf("[WecomCallback] Panic in async processing: %v", e)
+					}
+				}()
+				reply := processWecomMsg(content)
+				logger.Printf("[WecomCallback] Reply (len=%d): %s", len(reply), reply[:min(200, len(reply))])
+				if reply == "" {
+					return
+				}
+				logger.Printf("[WecomCallback] Sending reply via API to %s", toUser)
+				token, err := getWecomAccessToken()
+				if err != nil {
+					logger.Printf("[WecomCallback] Get access token failed: %v", err)
+					return
+				}
+				wd := WecomMsg{ToUser: toUser, MsgType: "text", AgentId: WecomAid}
+				wd.Text.Content = reply
+				resp, err := httpDo("POST", fmt.Sprintf(SendMsgURL, token), wd, nil)
+				if err != nil {
+					logger.Printf("[WecomCallback] Send failed: %v", err)
+				} else {
+					logger.Printf("[WecomCallback] Reply sent to %s, resp: %s", toUser, string(resp))
+				}
+			}(msg.FromUserName, content)
+		}
 	default:
 		w.WriteHeader(405)
 	}
