@@ -124,15 +124,16 @@ func handleTgMsg(m *TgMsg) {
 		case state == "edit_offline_notify":
 			handleTgAdminNotifyOfflineEditSubmit(chatID, txt)
 			return
-		case state == "add_load_alert":
-			handleTgAdminLoadAlertAddSubmit(chatID, txt)
-			return
-		case strings.HasPrefix(state, "edit_load_alert:"):
-			id := strings.TrimPrefix(state, "edit_load_alert:")
-			handleTgAdminLoadAlertEditSubmit(chatID, id+"|"+txt)
-			return
-		case state == "edit_traffic_report":
-			handleTgAdminTrafficReportEditSubmit(chatID, txt)
+		case strings.HasPrefix(state, "edit_channel:"):
+			channelName := strings.TrimPrefix(state, "edit_channel:")
+			params := parseKeyValueParams(txt)
+			err := adminSetNotificationChannelConfig(channelName, params)
+			if err != nil {
+				tgSend(chatID, "❌ 编辑失败: "+err.Error())
+				return
+			}
+			tgSendKB(chatID, fmt.Sprintf("✅ 渠道 '%s' 配置已更新", channelName),
+				[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlc"}}})
 			return
 		case state == "add_ping_task":
 			handleTgAdminPingTaskAddSubmit(chatID, txt)
@@ -171,21 +172,7 @@ func handleTgMsg(m *TgMsg) {
 			return
 		}
 		params := parseKeyValueParams(parts[1])
-		if v, ok := params["weight"]; ok {
-			params["weight"] = parseFloat(v.(string))
-		}
-		if v, ok := params["hidden"]; ok {
-			params["hidden"] = v.(string) == "true"
-		}
-		if v, ok := params["price"]; ok {
-			params["price"] = parseFloat(v.(string))
-		}
-		if v, ok := params["billing_cycle"]; ok {
-			params["billing_cycle"] = parseInt(v.(string))
-		}
-		if v, ok := params["traffic_limit"]; ok {
-			params["traffic_limit"] = parseUint64(v.(string))
-		}
+		convertClientParams(params)
 		err = adminEditClient(uuid, params)
 		if err != nil {
 			tgSend(chatID, "❌ 编辑失败: "+err.Error())
@@ -302,22 +289,13 @@ func handleTgCmdClientAdd(chatID int64, name string) {
 	}
 	for _, c := range clients {
 		if c.Name == name {
-			// Show token and install command directly
 			token, err := adminGetClientToken(c.UUID)
 			if err != nil {
 				tgSendKB(chatID, fmt.Sprintf("✅ 客户端 '%s' 已添加\n\nUUID: `%s`", name, c.UUID),
 					[][]InlineButton{{{Text: "🔑 获取Token", CallbackData: "adm_ct:" + c.UUID}, {Text: "📋 查看列表", CallbackData: "adm_cl"}}})
 				return
 			}
-			siteURL := strings.TrimRight(KomariUrl, "/")
-			linuxURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh")
-			winURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1")
-			linuxCmd := fmt.Sprintf("wget -qO- %s | sudo bash -s -- -e %s -t %s", linuxURL, siteURL, token)
-			winCmd := fmt.Sprintf("powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"iwr '%s' -UseBasicParsing -OutFile 'install.ps1'; & '.\\install.ps1' '-e' '%s' '-t' '%s'\"", winURL, siteURL, token)
-			msg := fmt.Sprintf("✅ 客户端 '%s' 已添加\n\nUUID: `%s`\nToken: `%s`\n\n", name, c.UUID, token)
-			msg += "📦 *Linux 一键安装:*\n```\n" + linuxCmd + "\n```\n"
-			msg += "📦 *Windows PowerShell:*\n```\n" + winCmd + "\n```\n"
-			msg += "📦 *macOS / FreeBSD:*\n手动下载: [GitHub Releases](https://github.com/komari-monitor/komari-agent/releases)"
+			msg := fmt.Sprintf("✅ 客户端 '%s' 已添加\n\n", name) + fmtInstallCommandsMarkdown(name, c.UUID, token)
 			tgSendKB(chatID, msg,
 				[][]InlineButton{{{Text: "📋 查看列表", CallbackData: "adm_cl"}}})
 			return
@@ -573,13 +551,13 @@ func handleTgCallback(cb *TgCallback) {
 	case "adm_nldo":
 		handleTgAdminNotifyDisableOffline(uid)
 	case "adm_nll":
-		handleTgAdminNotifyLoad(uid)
-	case "adm_nlt":
-		handleTgAdminNotifyTraffic(uid)
-	case "adm_nlet":
-		handleTgAdminNotifyEnableTraffic(uid)
-	case "adm_nldt":
-		handleTgAdminNotifyDisableTraffic(uid)
+		handleTgAdminNotifyChannels(uid)
+	case "adm_nlc":
+		handleTgAdminNotifyChannels(uid)
+	case "adm_nlc_cfg":
+		handleTgAdminNotifyChannelConfig(uid, param)
+	case "adm_ntest":
+		handleTgAdminNotifyTest(uid)
 	case "adm_pt":
 		handleTgAdminPingTasks(uid)
 	case "adm_ptd":
@@ -618,20 +596,6 @@ func handleTgCallback(cb *TgCallback) {
 		handleTgAdminClientEditSubmit(uid, param)
 	case "adm_nloe":
 		handleTgAdminNotifyOfflineEdit(uid)
-	case "adm_nla":
-		handleTgAdminLoadAlertAddForm(uid)
-	case "adm_nlad":
-		handleTgAdminLoadAlertAddSubmit(uid, param)
-	case "adm_nld":
-		handleTgAdminLoadAlertDeleteConfirm(uid, param)
-	case "adm_nldy":
-		handleTgAdminLoadAlertDelete(uid, param)
-	case "adm_nle":
-		handleTgAdminLoadAlertEditForm(uid, param)
-	case "adm_nled":
-		handleTgAdminLoadAlertEditSubmit(uid, param)
-	case "adm_nlte":
-		handleTgAdminTrafficReportEdit(uid)
 	case "adm_pta":
 		handleTgAdminPingTaskAddForm(uid)
 	case "adm_ptad":
@@ -975,46 +939,37 @@ func processWecomMsg(content string) string {
 	// 精确匹配优先
 	switch content {
 	case "帮助", "help", "?", "菜单", "menu":
-		return "📋 查询命令:\n" +
-			"状态 - 节点状态概览\n" +
-			"列表 - 所有节点列表\n" +
-			"离线 - 离线节点\n" +
-			"Ping - Ping任务\n" +
-			"排名 - 性能排名\n" +
-			"信息 - 站点信息\n" +
-			"分组 - 节点分组\n\n" +
-			"🔧 管理命令:\n" +
-			"客户端 - 客户端管理\n" +
-			"新 节点名 - 快速创建客户端\n" +
-			"通知 - 通知管理\n" +
-			"Ping任务 - Ping任务管理\n" +
-			"远程任务 - 远程任务\n" +
-			"日志 - 审计日志\n" +
-			"会话 - 会话管理\n" +
-			"设置 - 系统设置\n\n" +
-			"📌 带参数命令:\n" +
-			"详情 节点名 - 查看节点详情\n" +
-			"Token 节点名 - 获取Token+安装命令\n" +
-			"删除 节点名 - 删除客户端\n" +
-			"添加 name=xxx region=xxx - 添加客户端\n" +
-			"编辑 节点名 key=value - 编辑客户端\n\n" +
-			"🔧 通知管理:\n" +
-			"离线通知 编辑 key=value - 编辑离线通知\n" +
-			"负载告警 添加 name=xxx type=cpu threshold=80\n" +
-			"负载告警 删除 ID - 删除负载告警\n" +
-			"负载告警 编辑 ID key=value - 编辑负载告警\n" +
-			"流量报告 编辑 key=value - 编辑流量报告\n\n" +
-			"📡 Ping管理:\n" +
-			"Ping添加 name=xxx type=http target=xxx interval=60\n" +
-			"Ping编辑 ID key=value - 编辑Ping任务\n\n" +
-			"⚙️ 其他管理:\n" +
-			"设置 编辑 key=value - 编辑设置\n" +
-			"执行 命令 - 执行远程命令\n" +
-			"清空记录 [type=load] - 清空记录\n" +
-			"删除会话 [ID] - 删除会话\n\n" +
-			"💡 可用参数 (英文):\n" +
-			"name/region/group/tags/weight/hidden/price/currency/billing_cycle/public_remark/remark/traffic_limit/traffic_limit_type\n\n" +
-			"直接输入节点名称快速查看"
+		return "📋 *查询命令*\n" +
+			"状态 · 列表 · 离线 · Ping · 排名 · 信息 · 分组\n" +
+			"详情 节点名 · 客户端详情 节点名\n" +
+			"直接输入节点名称快速查看\n\n" +
+			"🔧 *客户端管理*\n" +
+			"客户端 · 新 节点名 · 添加 name=xxx ...\n" +
+			"编辑 节点名 key=value · 删除 节点名\n" +
+			"Token 节点名\n\n" +
+			"🔔 *通知管理*\n" +
+			"通知 · 离线通知 · 离线通知 编辑 key=value\n" +
+			"渠道 · 渠道配置 ID · 渠道 编辑 ID key=value\n" +
+			"测试通知\n\n" +
+			"📡 *Ping/远程/其他*\n" +
+			"Ping任务 · Ping添加 name=xxx ...\n" +
+			"Ping编辑 ID key=value · Ping删除 ID\n" +
+			"远程任务 · 执行 命令\n" +
+			"日志 · 会话 · 设置 · 设置 编辑 key=value\n" +
+			"删除会话 [ID] · 清空记录 [type=load]\n\n" +
+			"发送 帮助 参数 查看详细参数说明"
+	case "帮助 参数":
+		return "📌 *客户端参数* (英文 key=value):\n" +
+			"name · region · group · tags · weight · hidden\n" +
+			"price · currency · billing_cycle · public_remark\n" +
+			"remark · traffic_limit · traffic_limit_type · auto_renewal\n\n" +
+			"📌 *Ping任务参数*:\n" +
+			"name · type(http/tcp) · target · interval · default_on · clients\n\n" +
+			"📌 *设置参数*:\n" +
+			"record_enabled · private_site · allow_guest_view_node\n" +
+			"allow_guest_view_stats · record_preserve_time\n\n" +
+			"📌 *离线通知参数*:\n" +
+			"enable(true/false) · grace_period(秒)"
 	case "状态", "状态查询":
 		nodes, err := getNodeList()
 		if err != nil {
@@ -1059,7 +1014,7 @@ func processWecomMsg(content string) string {
 		if err != nil {
 			return "❌ " + err.Error()
 		}
-		return fmtNodeListWithStatus(nodes)
+		return fmtNodeList(nodes)
 	case "离线":
 		return fmtOfflineNodes()
 	case "Ping", "ping":
@@ -1089,10 +1044,10 @@ func processWecomMsg(content string) string {
 			sb.WriteString(fmtAdminNotifications(offline, "离线通知"))
 			sb.WriteString("\n")
 		}
-		traffic, err := adminListTrafficReports()
+		channels, err := adminListNotificationChannels()
 		if err == nil {
-			sb.WriteString("📊 流量报告:\n")
-			sb.WriteString(fmtAdminNotifications(traffic, "流量报告"))
+			sb.WriteString("📡 通知渠道:\n")
+			sb.WriteString(fmtAdminNotifications(channels, "通知渠道"))
 			sb.WriteString("\n")
 		}
 		return sb.String()
@@ -1147,13 +1102,17 @@ func processWecomMsg(content string) string {
 	lower := strings.ToLower(content)
 
 	// 详情 节点名
-	if strings.HasPrefix(content, "详情 ") {
-		name := strings.TrimSpace(content[len("详情 "):])
+	if name, ok := matchCmdPrefix(content, "详情"); ok {
 		ns := searchNodes(name)
 		switch len(ns) {
 		case 1:
-			rt, _ := getNodeRealtime(ns[0].UUID)
-			return fmtNodeStatus(&ns[0], rt)
+			// 使用 admin API 获取完整信息（包括私有备注）
+			node := ns[0]
+			if adminNode, err := adminGetClient(ns[0].UUID); err == nil {
+				node = adminNode
+			}
+			rt, _ := getNodeRealtime(node.UUID)
+			return fmtNodeStatus(&node, rt)
 		case 0:
 			return fmt.Sprintf("未找到节点: %s", name)
 		default:
@@ -1167,18 +1126,14 @@ func processWecomMsg(content string) string {
 	}
 
 	// Token 节点名 (also accepts legacy "客户端 Token 节点名")
-	if strings.HasPrefix(lower, "token ") || strings.HasPrefix(lower, "客户端 token ") || strings.HasPrefix(lower, "客户端 token	") {
-		// find name after "token " or "客户端 token "
-		var name string
-		if strings.HasPrefix(lower, "token ") {
-			name = strings.TrimSpace(content[len("Token "):])
-		} else {
-			name = strings.TrimSpace(content[len("客户端 Token "):])
-			if name == "" {
-				name = strings.TrimSpace(content[len("客户端 token "):])
-			}
-		}
-		uuid, err := resolveNodeUUID(name)
+	var tokenName string
+	if n, ok := matchCmdPrefix(lower, "token"); ok {
+		tokenName = strings.TrimSpace(content[len("token "):])
+	} else if n, ok := matchCmdPrefix(lower, "客户端 token"); ok {
+		tokenName = n
+	}
+	if tokenName != "" {
+		uuid, err := resolveNodeUUID(tokenName)
 		if err != nil {
 			return "❌ " + err.Error()
 		}
@@ -1186,27 +1141,18 @@ func processWecomMsg(content string) string {
 		if err != nil {
 			return "❌ 获取Token失败: " + err.Error()
 		}
-		siteURL := strings.TrimRight(KomariUrl, "/")
-		linuxURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh")
-		winURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1")
-		linuxCmd := fmt.Sprintf("wget -qO- %s | sudo bash -s -- -e %s -t %s", linuxURL, siteURL, token)
-		winCmd := fmt.Sprintf("powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"iwr '%s' -UseBasicParsing -OutFile 'install.ps1'; & '.\\install.ps1' '-e' '%s' '-t' '%s'\"", winURL, siteURL, token)
-		msg := fmt.Sprintf("🔑 客户端 Token\n\n名称: %s\nUUID: %s\nToken: %s\n\n", name, uuid, token)
-		msg += "📦 Linux 一键安装:\n" + linuxCmd + "\n\n"
-		msg += "📦 Windows PowerShell:\n" + winCmd + "\n\n"
-		msg += "📦 macOS / FreeBSD:\n手动下载: https://github.com/komari-monitor/komari-agent/releases"
-		return msg
+		return fmtInstallCommands(tokenName, uuid, token)
 	}
 
 	// 删除 节点名 (also accepts legacy "客户端 删除 节点名")
-	if strings.HasPrefix(content, "删除 ") || strings.HasPrefix(content, "客户端 删除 ") || strings.HasPrefix(content, "客户端 删除	") {
-		var name string
-		if strings.HasPrefix(content, "删除 ") {
-			name = strings.TrimSpace(content[len("删除 "):])
-		} else {
-			name = strings.TrimSpace(content[len("客户端 删除 "):])
-		}
-		uuid, err := resolveNodeUUID(name)
+	var delName string
+	if n, ok := matchCmdPrefix(content, "删除"); ok {
+		delName = n
+	} else if n, ok := matchCmdPrefix(content, "客户端 删除"); ok {
+		delName = n
+	}
+	if delName != "" {
+		uuid, err := resolveNodeUUID(delName)
 		if err != nil {
 			return "❌ " + err.Error()
 		}
@@ -1214,7 +1160,7 @@ func processWecomMsg(content string) string {
 		if err != nil {
 			return "❌ 删除失败: " + err.Error()
 		}
-		return fmt.Sprintf("✅ 客户端 '%s' 已删除", name)
+		return fmt.Sprintf("✅ 客户端 '%s' 已删除", delName)
 	}
 
 	// 新 节点名 — 快速创建客户端
@@ -1228,105 +1174,50 @@ func processWecomMsg(content string) string {
 		if err != nil {
 			return "❌ 添加失败: " + err.Error()
 		}
-		// 获取刚创建的客户端信息
 		nodes, _ := getNodeList()
-		var createdNode *KomariNode
 		for _, n := range nodes {
 			if n.Name == name {
-				createdNode = &n
-				break
+				return fmtCreatedClient(name, n.UUID)
 			}
 		}
-		if createdNode == nil {
-			return fmt.Sprintf("✅ 客户端 '%s' 已添加", name)
-		}
-		token, _ := adminGetClientToken(createdNode.UUID)
-		siteURL := strings.TrimRight(KomariUrl, "/")
-		linuxURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh")
-		winURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1")
-		linuxCmd := fmt.Sprintf("wget -qO- %s | sudo bash -s -- -e %s -t %s", linuxURL, siteURL, token)
-		winCmd := fmt.Sprintf("powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"iwr '%s' -UseBasicParsing -OutFile 'install.ps1'; & '.\\install.ps1' '-e' '%s' '-t' '%s'\"", winURL, siteURL, token)
-		msg := fmt.Sprintf("✅ 客户端 '%s' 已添加\n\n", name)
-		msg += fmt.Sprintf("UUID: %s\n", createdNode.UUID)
-		if token != "" {
-			msg += fmt.Sprintf("Token: %s\n\n", token)
-			msg += "📦 Linux 一键安装:\n" + linuxCmd + "\n\n"
-			msg += "📦 Windows PowerShell:\n" + winCmd + "\n\n"
-			msg += "📦 macOS / FreeBSD:\n手动下载: https://github.com/komari-monitor/komari-agent/releases"
-		}
-		return msg
+		return fmt.Sprintf("✅ 客户端 '%s' 已添加", name)
 	}
 
 	// 添加 name=xxx region=xxx ... (also accepts legacy "客户端 添加")
-	if strings.HasPrefix(content, "添加 ") || strings.HasPrefix(content, "客户端 添加 ") || strings.HasPrefix(content, "客户端 添加	") {
-		var paramStr string
-		if strings.HasPrefix(content, "添加 ") {
-			paramStr = strings.TrimSpace(content[len("添加 "):])
-		} else {
-			paramStr = strings.TrimSpace(content[len("客户端 添加 "):])
-		}
-		params := parseKeyValueParams(paramStr)
+	var addParamStr string
+	var addFound bool
+	if addParamStr, addFound = matchCmdPrefix(content, "添加"); !addFound {
+		addParamStr, addFound = matchCmdPrefix(content, "客户端 添加")
+	}
+	if addFound {
+		params := parseKeyValueParams(addParamStr)
 		if _, ok := params["name"]; !ok {
 			return "❌ 缺少必填参数: name\n\n格式: 添加 name=节点名 region=区域 group=分组"
 		}
-		// Convert types
-		if v, ok := params["weight"]; ok {
-			params["weight"] = parseFloat(v.(string))
-		}
-		if v, ok := params["hidden"]; ok {
-			params["hidden"] = v.(string) == "true"
-		}
-		if v, ok := params["price"]; ok {
-			params["price"] = parseFloat(v.(string))
-		}
-		if v, ok := params["billing_cycle"]; ok {
-			params["billing_cycle"] = parseInt(v.(string))
-		}
-		if v, ok := params["traffic_limit"]; ok {
-			params["traffic_limit"] = parseUint64(v.(string))
-		}
+		convertClientParams(params)
 		err := adminAddClient(params)
 		if err != nil {
 			return "❌ 添加失败: " + err.Error()
 		}
-		// 获取刚创建的客户端信息
 		name := params["name"].(string)
 		nodes, _ := getNodeList()
-		var createdNode *KomariNode
 		for _, n := range nodes {
 			if n.Name == name {
-				createdNode = &n
-				break
+				return fmtCreatedClient(name, n.UUID)
 			}
 		}
-		if createdNode == nil {
-			return fmt.Sprintf("✅ 客户端 '%s' 已添加", name)
-		}
-		token, _ := adminGetClientToken(createdNode.UUID)
-		siteURL := strings.TrimRight(KomariUrl, "/")
-		linuxURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh")
-		winURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1")
-		linuxCmd := fmt.Sprintf("wget -qO- %s | sudo bash -s -- -e %s -t %s", linuxURL, siteURL, token)
-		winCmd := fmt.Sprintf("powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"iwr '%s' -UseBasicParsing -OutFile 'install.ps1'; & '.\\install.ps1' '-e' '%s' '-t' '%s'\"", winURL, siteURL, token)
-		msg := fmt.Sprintf("✅ 客户端 '%s' 已添加\n\n", name)
-		msg += fmt.Sprintf("UUID: %s\n", createdNode.UUID)
-		if token != "" {
-			msg += fmt.Sprintf("Token: %s\n\n", token)
-			msg += "📦 Linux 一键安装:\n" + linuxCmd + "\n\n"
-			msg += "📦 Windows PowerShell:\n" + winCmd + "\n\n"
-			msg += "📦 macOS / FreeBSD:\n手动下载: https://github.com/komari-monitor/komari-agent/releases"
-		}
-		return msg
+		return fmt.Sprintf("✅ 客户端 '%s' 已添加", name)
 	}
 
 	// 编辑 节点名 key=value ... (also accepts legacy "客户端 编辑")
-	if strings.HasPrefix(content, "编辑 ") || strings.HasPrefix(content, "客户端 编辑 ") || strings.HasPrefix(content, "客户端 编辑	") {
-		var parts []string
-		if strings.HasPrefix(content, "编辑 ") {
-			parts = strings.SplitN(strings.TrimSpace(content[len("编辑 "):]), " ", 2)
-		} else {
-			parts = strings.SplitN(strings.TrimSpace(content[len("客户端 编辑 "):]), " ", 2)
-		}
+	var editArgStr string
+	if a, ok := matchCmdPrefix(content, "编辑"); ok {
+		editArgStr = a
+	} else if a, ok := matchCmdPrefix(content, "客户端 编辑"); ok {
+		editArgStr = a
+	}
+	if editArgStr != "" {
+		parts := strings.SplitN(editArgStr, " ", 2)
 		if len(parts) < 2 {
 			return "❌ 格式错误\n\n格式: 编辑 节点名 key=value key2=value2"
 		}
@@ -1336,22 +1227,7 @@ func processWecomMsg(content string) string {
 			return "❌ " + err.Error()
 		}
 		params := parseKeyValueParams(parts[1])
-		// Convert types
-		if v, ok := params["weight"]; ok {
-			params["weight"] = parseFloat(v.(string))
-		}
-		if v, ok := params["hidden"]; ok {
-			params["hidden"] = v.(string) == "true"
-		}
-		if v, ok := params["price"]; ok {
-			params["price"] = parseFloat(v.(string))
-		}
-		if v, ok := params["billing_cycle"]; ok {
-			params["billing_cycle"] = parseInt(v.(string))
-		}
-		if v, ok := params["traffic_limit"]; ok {
-			params["traffic_limit"] = parseUint64(v.(string))
-		}
+		convertClientParams(params)
 		err = adminEditClient(uuid, params)
 		if err != nil {
 			return "❌ 编辑失败: " + err.Error()
@@ -1359,16 +1235,18 @@ func processWecomMsg(content string) string {
 		return fmt.Sprintf("✅ 客户端 '%s' 已更新", name)
 	}
 
+	// 离线通知 — 查看离线通知配置
+	if content == "离线通知" {
+		offline, err := adminListOfflineNotifications()
+		if err != nil {
+			return "❌ 获取离线通知配置失败: " + err.Error()
+		}
+		return fmtAdminNotifications(offline, "离线通知")
+	}
+
 	// 离线通知 编辑 key=value ...
-	if strings.HasPrefix(content, "离线通知 编辑 ") || strings.HasPrefix(content, "离线通知 编辑	") {
-		paramStr := strings.TrimSpace(content[len("离线通知 编辑 "):])
+	if paramStr, ok := matchCmdPrefix(content, "离线通知 编辑"); ok {
 		params := parseKeyValueParams(paramStr)
-		if v, ok := params["enabled"]; ok {
-			params["enabled"] = v.(string) == "true"
-		}
-		if v, ok := params["interval"]; ok {
-			params["interval"] = parseInt(v.(string))
-		}
 		err := adminEditOfflineNotification(params)
 		if err != nil {
 			return "❌ 编辑失败: " + err.Error()
@@ -1376,104 +1254,73 @@ func processWecomMsg(content string) string {
 		return "✅ 离线通知配置已更新"
 	}
 
-	// 负载告警 添加 name=xxx type=cpu threshold=80
-	if strings.HasPrefix(content, "负载告警 添加 ") || strings.HasPrefix(content, "负载告警 添加	") {
-		paramStr := strings.TrimSpace(content[len("负载告警 添加 "):])
-		params := parseKeyValueParams(paramStr)
-		if _, ok := params["name"]; !ok {
-			return "❌ 缺少必填参数: name\n\n格式: 负载告警 添加 name=规则名 type=cpu threshold=80"
-		}
-		if v, ok := params["threshold"]; ok {
-			params["threshold"] = parseFloat(v.(string))
-		}
-		if v, ok := params["interval"]; ok {
-			params["interval"] = parseInt(v.(string))
-		}
-		if v, ok := params["enabled"]; ok {
-			params["enabled"] = v.(string) == "true"
-		}
-		err := adminAddLoadAlert(params)
+	// 渠道 — 列出通知渠道
+	if content == "渠道" || content == "通知渠道" {
+		channels, err := adminListNotificationChannels()
 		if err != nil {
-			return "❌ 添加失败: " + err.Error()
+			return "❌ 获取通知渠道失败: " + err.Error()
 		}
-		return fmt.Sprintf("✅ 负载告警规则 '%s' 已添加", params["name"])
+		return fmtAdminNotifications(channels, "通知渠道")
 	}
 
-	// 负载告警 删除 id
-	if strings.HasPrefix(content, "负载告警 删除 ") || strings.HasPrefix(content, "负载告警 删除	") {
-		idStr := strings.TrimSpace(content[len("负载告警 删除 "):])
-		id := parseInt(idStr)
-		if id == 0 {
-			return "❌ 无效的ID"
+	// 渠道配置 ID — 查看渠道配置
+	if channelID, ok := matchCmdPrefix(content, "渠道配置"); ok {
+		if channelID == "" {
+			return "❌ 请指定渠道ID\n\n格式: 渠道配置 <id>"
 		}
-		err := adminDeleteLoadAlert(map[string]interface{}{"id": id})
+		config, err := adminGetNotificationChannelConfig(channelID)
 		if err != nil {
-			return "❌ 删除失败: " + err.Error()
+			return "❌ 获取配置失败: " + err.Error()
 		}
-		return "✅ 负载告警规则已删除"
+		var pretty interface{}
+		if json.Unmarshal(config, &pretty) == nil {
+			if formatted, err := json.MarshalIndent(pretty, "", "  "); err == nil {
+				return fmt.Sprintf("📡 渠道 %s 配置:\n\n%s", channelID, string(formatted))
+			}
+		}
+		return fmt.Sprintf("📡 渠道 %s 配置:\n\n%s", channelID, string(config))
 	}
 
-	// 负载告警 编辑 id key=value ...
-	if strings.HasPrefix(content, "负载告警 编辑 ") || strings.HasPrefix(content, "负载告警 编辑	") {
-		parts := strings.SplitN(strings.TrimSpace(content[len("负载告警 编辑 "):]), " ", 2)
+	// 渠道 编辑 ID key=value ... — 编辑渠道配置
+	if argStr, ok := matchCmdPrefix(content, "渠道 编辑"); ok {
+		parts := strings.SplitN(argStr, " ", 2)
 		if len(parts) < 2 {
-			return "❌ 格式错误\n\n格式: 负载告警 编辑 ID key=value"
+			return "❌ 格式错误\n\n格式: 渠道 编辑 <渠道ID> key=value"
 		}
-		id := parseInt(parts[0])
+		channelID := parts[0]
 		params := parseKeyValueParams(parts[1])
-		params["id"] = id
-		if v, ok := params["threshold"]; ok {
-			params["threshold"] = parseFloat(v.(string))
-		}
-		if v, ok := params["interval"]; ok {
-			params["interval"] = parseInt(v.(string))
-		}
-		if v, ok := params["enabled"]; ok {
-			params["enabled"] = v.(string) == "true"
-		}
-		err := adminEditLoadAlert(params)
+		err := adminSetNotificationChannelConfig(channelID, params)
 		if err != nil {
 			return "❌ 编辑失败: " + err.Error()
 		}
-		return "✅ 负载告警规则已更新"
+		return fmt.Sprintf("✅ 渠道 '%s' 配置已更新", channelID)
 	}
 
-	// 流量报告 编辑 key=value ...
-	if strings.HasPrefix(content, "流量报告 编辑 ") || strings.HasPrefix(content, "流量报告 编辑	") {
-		paramStr := strings.TrimSpace(content[len("流量报告 编辑 "):])
-		params := parseKeyValueParams(paramStr)
-		if v, ok := params["enabled"]; ok {
-			params["enabled"] = v.(string) == "true"
-		}
-		if v, ok := params["interval"]; ok {
-			params["interval"] = parseInt(v.(string))
-		}
-		err := adminEditTrafficReport(params)
+	// 测试通知 — 发送测试消息
+	if content == "测试通知" {
+		err := adminTestNotification(map[string]interface{}{"type": "test", "message": "wecom-komari 测试通知"})
 		if err != nil {
-			return "❌ 编辑失败: " + err.Error()
+			return "❌ 发送失败: " + err.Error()
 		}
-		return "✅ 流量报告配置已更新"
+		return "✅ 测试通知已发送"
 	}
 
 	// Ping添加 name=xxx type=http target=xxx interval=60
-	if strings.HasPrefix(content, "Ping添加 ") || strings.HasPrefix(content, "ping添加 ") {
-		paramStr := strings.TrimSpace(content[len("Ping添加 "):])
-		if strings.HasPrefix(lower, "ping添加 ") {
-			paramStr = strings.TrimSpace(content[len("ping添加 "):])
-		}
-		params := parseKeyValueParams(paramStr)
+	var pingAddParamStr string
+	var pingAddFound bool
+	if s, ok := matchCmdPrefix(content, "Ping添加"); ok {
+		pingAddParamStr = s
+		pingAddFound = true
+	} else if s, ok := matchCmdPrefix(lower, "ping添加"); ok {
+		pingAddParamStr = strings.TrimSpace(content[len("ping添加 "):])
+		pingAddFound = true
+	}
+	if pingAddFound {
+		params := parseKeyValueParams(pingAddParamStr)
 		if _, ok := params["name"]; !ok {
 			return "❌ 缺少必填参数: name\n\n格式: Ping添加 name=任务名 type=http target=https://example.com interval=60"
 		}
-		if v, ok := params["interval"]; ok {
-			params["interval"] = parseInt(v.(string))
-		}
-		if v, ok := params["default_on"]; ok {
-			params["default_on"] = v.(string) == "true"
-		}
-		if v, ok := params["clients"]; ok {
-			params["clients"] = strings.Split(v.(string), ",")
-		}
+		convertPingTaskParams(params)
 		err := adminAddPingTask(params)
 		if err != nil {
 			return "❌ 添加失败: " + err.Error()
@@ -1482,26 +1329,23 @@ func processWecomMsg(content string) string {
 	}
 
 	// Ping编辑 id key=value ...
-	if strings.HasPrefix(content, "Ping编辑 ") || strings.HasPrefix(content, "ping编辑 ") {
-		paramStr := strings.TrimSpace(content[len("Ping编辑 "):])
-		if strings.HasPrefix(lower, "ping编辑 ") {
-			paramStr = strings.TrimSpace(content[len("ping编辑 "):])
-		}
-		parts := strings.SplitN(paramStr, " ", 2)
+	var pingEditArgStr string
+	var pingEditFound bool
+	if s, ok := matchCmdPrefix(content, "Ping编辑"); ok {
+		pingEditArgStr = s
+		pingEditFound = true
+	} else if s, ok := matchCmdPrefix(lower, "ping编辑"); ok {
+		pingEditArgStr = strings.TrimSpace(content[len("ping编辑 "):])
+		pingEditFound = true
+	}
+	if pingEditFound {
+		parts := strings.SplitN(pingEditArgStr, " ", 2)
 		if len(parts) < 2 {
 			return "❌ 格式错误\n\n格式: Ping编辑 ID key=value"
 		}
 		id := parseInt(parts[0])
 		params := parseKeyValueParams(parts[1])
-		if v, ok := params["interval"]; ok {
-			params["interval"] = parseInt(v.(string))
-		}
-		if v, ok := params["default_on"]; ok {
-			params["default_on"] = v.(string) == "true"
-		}
-		if v, ok := params["clients"]; ok {
-			params["clients"] = strings.Split(v.(string), ",")
-		}
+		convertPingTaskParams(params)
 		err := adminEditPingTask(id, params)
 		if err != nil {
 			return "❌ 编辑失败: " + err.Error()
@@ -1509,25 +1353,32 @@ func processWecomMsg(content string) string {
 		return "✅ Ping任务已更新"
 	}
 
+	// Ping删除 ID
+	var pingDelIDStr string
+	var pingDelFound bool
+	if s, ok := matchCmdPrefix(content, "Ping删除"); ok {
+		pingDelIDStr = s
+		pingDelFound = true
+	} else if s, ok := matchCmdPrefix(lower, "ping删除"); ok {
+		pingDelIDStr = s
+		pingDelFound = true
+	}
+	if pingDelFound {
+		id := parseInt(pingDelIDStr)
+		if id == 0 {
+			return "❌ 请指定Ping任务ID\n\n格式: Ping删除 ID"
+		}
+		err := adminDeletePingTask(id)
+		if err != nil {
+			return "❌ 删除失败: " + err.Error()
+		}
+		return fmt.Sprintf("✅ Ping任务 %d 已删除", id)
+	}
+
 	// 设置 编辑 key=value ...
-	if strings.HasPrefix(content, "设置 编辑 ") || strings.HasPrefix(content, "设置 编辑	") {
-		paramStr := strings.TrimSpace(content[len("设置 编辑 "):])
+	if paramStr, ok := matchCmdPrefix(content, "设置 编辑"); ok {
 		params := parseKeyValueParams(paramStr)
-		if v, ok := params["record_enabled"]; ok {
-			params["record_enabled"] = v.(string) == "true"
-		}
-		if v, ok := params["private_site"]; ok {
-			params["private_site"] = v.(string) == "true"
-		}
-		if v, ok := params["allow_guest_view_node"]; ok {
-			params["allow_guest_view_node"] = v.(string) == "true"
-		}
-		if v, ok := params["allow_guest_view_stats"]; ok {
-			params["allow_guest_view_stats"] = v.(string) == "true"
-		}
-		if v, ok := params["record_preserve_time"]; ok {
-			params["record_preserve_time"] = parseInt(v.(string))
-		}
+		convertSettingsParams(params)
 		err := adminEditSettings(params)
 		if err != nil {
 			return "❌ 编辑失败: " + err.Error()
@@ -1536,8 +1387,7 @@ func processWecomMsg(content string) string {
 	}
 
 	// 执行 command
-	if strings.HasPrefix(content, "执行 ") || strings.HasPrefix(content, "执行	") {
-		command := strings.TrimSpace(content[len("执行 "):])
+	if command, ok := matchCmdPrefix(content, "执行"); ok {
 		if command == "" {
 			return "❌ 命令不能为空\n\n格式: 执行 ls -la"
 		}
@@ -1549,8 +1399,7 @@ func processWecomMsg(content string) string {
 	}
 
 	// 清空记录 type=load before=2024-01-01
-	if strings.HasPrefix(content, "清空记录 ") || strings.HasPrefix(content, "清空记录	") {
-		paramStr := strings.TrimSpace(content[len("清空记录 "):])
+	if paramStr, ok := matchCmdPrefix(content, "清空记录"); ok {
 		if paramStr == "" || paramStr == "全部" {
 			err := adminClearAllRecords()
 			if err != nil {
@@ -1566,10 +1415,9 @@ func processWecomMsg(content string) string {
 		return "✅ 记录已清空"
 	}
 
-	// 删除会话 id
-	if strings.HasPrefix(content, "删除会话 ") || strings.HasPrefix(content, "删除会话	") {
-		id := strings.TrimSpace(content[len("删除会话 "):])
-		if id == "" || id == "全部" {
+	// 删除会话 <token>
+	if sessionToken, ok := matchCmdPrefix(content, "删除会话"); ok {
+		if sessionToken == "" || sessionToken == "全部" {
 			err := adminRemoveAllSessions()
 			if err != nil {
 				return "❌ 删除失败: " + err.Error()
@@ -1579,19 +1427,40 @@ func processWecomMsg(content string) string {
 			sessMu.Unlock()
 			return "✅ 所有会话已删除"
 		}
-		err := adminRemoveSession(id)
+		err := adminRemoveSession(sessionToken)
 		if err != nil {
 			return "❌ 删除失败: " + err.Error()
 		}
-		return fmt.Sprintf("✅ 会话 '%s' 已删除", id)
+		return "✅ 会话已删除"
+	}
+
+	// 客户端详情 节点名
+	if name, ok := matchCmdPrefix(content, "客户端详情"); ok {
+		if name == "" {
+			return "❌ 请指定节点名\n\n格式: 客户端详情 节点名"
+		}
+		uuid, err := resolveNodeUUID(name)
+		if err != nil {
+			return "❌ " + err.Error()
+		}
+		client, err := adminGetClient(uuid)
+		if err != nil {
+			return "❌ 获取详情失败: " + err.Error()
+		}
+		return fmtAdminClientDetail(&client)
 	}
 
 	// 默认：尝试匹配节点名
 	ns := searchNodes(content)
 	switch len(ns) {
 	case 1:
-		rt, _ := getNodeRealtime(ns[0].UUID)
-		return fmtNodeStatus(&ns[0], rt)
+		// 使用 admin API 获取完整信息（包括私有备注）
+		node := ns[0]
+		if adminNode, err := adminGetClient(ns[0].UUID); err == nil {
+			node = adminNode
+		}
+		rt, _ := getNodeRealtime(node.UUID)
+		return fmtNodeStatus(&node, rt)
 	case 0:
 		return fmt.Sprintf("未找到: %s\n\n发送 帮助 查看可用命令", content)
 	default:
@@ -1701,16 +1570,12 @@ func handleTgAdminClientToken(chatID int64, uuid string) {
 		tgSend(chatID, "❌ 获取Token失败: "+err.Error())
 		return
 	}
-	siteURL := strings.TrimRight(KomariUrl, "/")
-	linuxURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh")
-	winURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1")
-	linuxCmd := fmt.Sprintf("wget -qO- %s | sudo bash -s -- -e %s -t %s", linuxURL, siteURL, token)
-	winCmd := fmt.Sprintf("powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"iwr '%s' -UseBasicParsing -OutFile 'install.ps1'; & '.\\install.ps1' '-e' '%s' '-t' '%s'\"", winURL, siteURL, token)
-	msg := fmt.Sprintf("🔑 *客户端 Token*\n\nUUID: `%s`\nToken: `%s`\n\n", uuid, token)
-	msg += "📦 *Linux 一键安装:*\n```\n" + linuxCmd + "\n```\n"
-	msg += "📦 *Windows PowerShell:*\n```\n" + winCmd + "\n```\n"
-	msg += "📦 *macOS / FreeBSD:*\n手动下载: [GitHub Releases](https://github.com/komari-monitor/komari-agent/releases)"
-	tgSendKB(chatID, msg,
+	n, _ := getNodeByUUID(uuid)
+	name := uuid
+	if n != nil {
+		name = n.Name
+	}
+	tgSendKB(chatID, fmtInstallCommandsMarkdown(name, uuid, token),
 		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_cd:" + uuid}}})
 }
 
@@ -1739,8 +1604,8 @@ func handleTgAdminClientRemove(chatID int64, uuid string) {
 func handleTgAdminNotify(chatID int64) {
 	tgSendKB(chatID, "🔔 *通知管理*\n\n选择通知类型:",
 		[][]InlineButton{
-			{{Text: "📴 离线通知", CallbackData: "adm_nlo"}, {Text: "📈 负载告警", CallbackData: "adm_nll"}},
-			{{Text: "📊 流量报告", CallbackData: "adm_nlt"}},
+			{{Text: "📴 离线通知", CallbackData: "adm_nlo"}, {Text: "📡 通知渠道", CallbackData: "adm_nlc"}},
+			{{Text: "📤 测试通知", CallbackData: "adm_ntest"}},
 			{{Text: "⬅️ 返回", CallbackData: "adm"}},
 		})
 }
@@ -1777,63 +1642,55 @@ func handleTgAdminNotifyDisableOffline(chatID int64) {
 	tgSendKB(chatID, "⏸ 离线通知已禁用", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlo"}}})
 }
 
-func handleTgAdminNotifyLoad(chatID int64) {
-	data, err := adminListLoadAlerts()
+func handleTgAdminNotifyChannels(chatID int64) {
+	data, err := adminListNotificationChannels()
 	if err != nil {
-		tgSend(chatID, "❌ 获取负载告警失败: "+err.Error())
+		tgSend(chatID, "❌ 获取通知渠道失败: "+err.Error())
 		return
 	}
-	txt := fmtAdminNotifications(data, "负载告警配置")
+	txt := fmtAdminNotifications(data, "通知渠道")
 
-	// Try to parse alerts for edit/delete buttons
 	var btns [][]InlineButton
-	var alerts []AdminNotificationConfig
-	if json.Unmarshal(data, &alerts) == nil {
-		for i, a := range alerts {
+	var channels []AdminNotificationConfig
+	if json.Unmarshal(data, &channels) == nil {
+		for i, ch := range channels {
 			btns = append(btns, []InlineButton{
-				{Text: fmt.Sprintf("✏️ %s", a.Name), CallbackData: fmt.Sprintf("adm_nle:%d", a.ID)},
-				{Text: "🗑", CallbackData: fmt.Sprintf("adm_nld:%d", a.ID)},
+				{Text: fmt.Sprintf("⚙️ %s", ch.Name), CallbackData: fmt.Sprintf("adm_nlc_cfg:%s", ch.Name)},
 			})
 			if i >= 8 {
 				break
 			}
 		}
 	}
-	btns = append(btns, []InlineButton{{Text: "➕ 添加规则", CallbackData: "adm_nla"}})
-	btns = append(btns, []InlineButton{{Text: "🔄 刷新", CallbackData: "adm_nll"}, {Text: "⬅️ 返回", CallbackData: "adm_no"}})
+	btns = append(btns, []InlineButton{{Text: "🔄 刷新", CallbackData: "adm_nlc"}, {Text: "⬅️ 返回", CallbackData: "adm_no"}})
 	tgSendKB(chatID, txt, btns)
 }
 
-func handleTgAdminNotifyTraffic(chatID int64) {
-	data, err := adminListTrafficReports()
+func handleTgAdminNotifyChannelConfig(chatID int64, channelName string) {
+	setUserState(chatID, "edit_channel:"+channelName)
+	config, err := adminGetNotificationChannelConfig(channelName)
 	if err != nil {
-		tgSend(chatID, "❌ 获取流量报告失败: "+err.Error())
+		tgSend(chatID, "❌ 获取渠道配置失败: "+err.Error())
 		return
 	}
-	txt := fmtAdminNotifications(data, "流量报告配置")
-	tgSendKB(chatID, txt, [][]InlineButton{
-		{{Text: "✏️ 编辑配置", CallbackData: "adm_nlte"}},
-		{{Text: "✅ 启用", CallbackData: "adm_nlet"}, {Text: "⏸ 禁用", CallbackData: "adm_nldt"}},
-		{{Text: "🔄 刷新", CallbackData: "adm_nlt"}, {Text: "⬅️ 返回", CallbackData: "adm_no"}},
-	})
+	var pretty interface{}
+	configStr := string(config)
+	if json.Unmarshal(config, &pretty) == nil {
+		if formatted, err := json.MarshalIndent(pretty, "", "  "); err == nil {
+			configStr = string(formatted)
+		}
+	}
+	tgSendKB(chatID, fmt.Sprintf("⚙️ *渠道配置: %s*\n\n```\n%s\n```\n\n💡 发送 key=value 修改配置，输入 `取消` 退出", channelName, configStr),
+		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlc"}}})
 }
 
-func handleTgAdminNotifyEnableTraffic(chatID int64) {
-	err := adminEnableTrafficReport()
+func handleTgAdminNotifyTest(chatID int64) {
+	err := adminTestNotification(map[string]interface{}{"type": "test", "message": "wecom-komari 测试通知"})
 	if err != nil {
-		tgSend(chatID, "❌ 启用失败: "+err.Error())
+		tgSend(chatID, "❌ 发送失败: "+err.Error())
 		return
 	}
-	tgSendKB(chatID, "✅ 流量报告已启用", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlt"}}})
-}
-
-func handleTgAdminNotifyDisableTraffic(chatID int64) {
-	err := adminDisableTrafficReport()
-	if err != nil {
-		tgSend(chatID, "❌ 禁用失败: "+err.Error())
-		return
-	}
-	tgSendKB(chatID, "⏸ 流量报告已禁用", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlt"}}})
+	tgSendKB(chatID, "✅ 测试通知已发送", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_no"}}})
 }
 
 // Ping task management
@@ -2014,7 +1871,7 @@ func handleTgAdminSessions(chatID int64) {
 				name = fmt.Sprintf("User#%d", sess.UserID)
 			}
 			btns = append(btns, []InlineButton{
-				{Text: fmt.Sprintf("🗑 %s", name), CallbackData: fmt.Sprintf("adm_sessd:%s", sess.ID)},
+				{Text: fmt.Sprintf("🗑 %s", name), CallbackData: fmt.Sprintf("adm_sessd:%s", sess.SessionID)},
 			})
 		}
 	}
@@ -2082,24 +1939,7 @@ func handleTgAdminClientAddSubmit(chatID int64, param string) {
 		return
 	}
 	// Convert types
-	if v, ok := params["weight"]; ok {
-		params["weight"] = parseFloat(v.(string))
-	}
-	if v, ok := params["hidden"]; ok {
-		params["hidden"] = v.(string) == "true"
-	}
-	if v, ok := params["price"]; ok {
-		params["price"] = parseFloat(v.(string))
-	}
-	if v, ok := params["billing_cycle"]; ok {
-		params["billing_cycle"] = parseInt(v.(string))
-	}
-	if v, ok := params["traffic_limit"]; ok {
-		params["traffic_limit"] = parseUint64(v.(string))
-	}
-	if v, ok := params["auto_renewal"]; ok {
-		params["auto_renewal"] = v.(string) == "true"
-	}
+	convertClientParams(params)
 
 	err := adminAddClient(params)
 	if err != nil {
@@ -2161,24 +2001,7 @@ func handleTgAdminClientEditSubmit(chatID int64, param string) {
 	params := parseKeyValueParams(parts[1])
 
 	// Convert types
-	if v, ok := params["weight"]; ok {
-		params["weight"] = parseFloat(v.(string))
-	}
-	if v, ok := params["hidden"]; ok {
-		params["hidden"] = v.(string) == "true"
-	}
-	if v, ok := params["price"]; ok {
-		params["price"] = parseFloat(v.(string))
-	}
-	if v, ok := params["billing_cycle"]; ok {
-		params["billing_cycle"] = parseInt(v.(string))
-	}
-	if v, ok := params["traffic_limit"]; ok {
-		params["traffic_limit"] = parseUint64(v.(string))
-	}
-	if v, ok := params["auto_renewal"]; ok {
-		params["auto_renewal"] = v.(string) == "true"
-	}
+	convertClientParams(params)
 
 	err := adminEditClient(uuid, params)
 	if err != nil {
@@ -2198,171 +2021,21 @@ func handleTgAdminNotifyOfflineEdit(chatID int64) {
 	tgSendKB(chatID, "✏️ *编辑离线通知配置*\n\n"+
 		"请按以下格式发送参数:\n\n"+
 		"```\n"+
-		"enabled=true\n"+
-		"interval=300\n"+
+		"enable=true\n"+
+		"grace_period=300\n"+
 		"```\n\n"+
-		"可修改参数: enabled, interval, type\n\n💡 随时输入 `取消` 退出",
+		"可修改参数: enable (true/false), grace_period (秒)\n\n💡 随时输入 `取消` 退出",
 		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlo"}}})
 }
 
 func handleTgAdminNotifyOfflineEditSubmit(chatID int64, param string) {
 	params := parseKeyValueParams(param)
-	if v, ok := params["enabled"]; ok {
-		params["enabled"] = v.(string) == "true"
-	}
-	if v, ok := params["interval"]; ok {
-		params["interval"] = parseInt(v.(string))
-	}
 	err := adminEditOfflineNotification(params)
 	if err != nil {
 		tgSend(chatID, "❌ 编辑失败: "+err.Error())
 		return
 	}
 	tgSendKB(chatID, "✅ 离线通知配置已更新", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlo"}}})
-}
-
-// ============================================================
-// 4. Notification - Load Alert Add
-// ============================================================
-
-func handleTgAdminLoadAlertAddForm(chatID int64) {
-	setUserState(chatID, "add_load_alert")
-	tgSendKB(chatID, "➕ *添加负载告警规则*\n\n"+
-		"请按以下格式发送参数:\n\n"+
-		"```\n"+
-		"name=规则名称\n"+
-		"type=cpu\n"+
-		"threshold=80\n"+
-		"interval=300\n"+
-		"enabled=true\n"+
-		"```\n\n"+
-		"type可选: cpu, memory, disk, network, load\n"+
-		"threshold: 告警阈值\n\n💡 随时输入 `取消` 退出",
-		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nll"}}})
-}
-
-func handleTgAdminLoadAlertAddSubmit(chatID int64, param string) {
-	params := parseKeyValueParams(param)
-	if _, ok := params["name"]; !ok {
-		tgSend(chatID, "❌ 缺少必填参数: name")
-		return
-	}
-	if v, ok := params["threshold"]; ok {
-		params["threshold"] = parseFloat(v.(string))
-	}
-	if v, ok := params["interval"]; ok {
-		params["interval"] = parseInt(v.(string))
-	}
-	if v, ok := params["enabled"]; ok {
-		params["enabled"] = v.(string) == "true"
-	}
-
-	err := adminAddLoadAlert(params)
-	if err != nil {
-		tgSend(chatID, "❌ 添加失败: "+err.Error())
-		return
-	}
-	tgSendKB(chatID, fmt.Sprintf("✅ 负载告警规则 '%s' 已添加", params["name"]),
-		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nll"}}})
-}
-
-// ============================================================
-// 5. Notification - Load Alert Delete
-// ============================================================
-
-func handleTgAdminLoadAlertDeleteConfirm(chatID int64, idStr string) {
-	tgSendKB(chatID, fmt.Sprintf("⚠️ *确认删除负载告警规则 #%s?*\n\n此操作不可撤销!", idStr),
-		[][]InlineButton{
-			{{Text: "✅ 确认删除", CallbackData: "adm_nldy:" + idStr}, {Text: "❌ 取消", CallbackData: "adm_nll"}},
-		})
-}
-
-func handleTgAdminLoadAlertDelete(chatID int64, idStr string) {
-	id := parseInt(idStr)
-	err := adminDeleteLoadAlert(map[string]interface{}{"id": id})
-	if err != nil {
-		tgSend(chatID, "❌ 删除失败: "+err.Error())
-		return
-	}
-	tgSendKB(chatID, "✅ 负载告警规则已删除", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nll"}}})
-}
-
-// ============================================================
-// 6. Notification - Load Alert Edit
-// ============================================================
-
-func handleTgAdminLoadAlertEditForm(chatID int64, idStr string) {
-	setUserState(chatID, "edit_load_alert:"+idStr)
-	tgSendKB(chatID, fmt.Sprintf("✏️ *编辑负载告警规则 #%s*\n\n"+
-		"请按以下格式发送要修改的参数:\n\n"+
-		"```\n"+
-		"name=规则名称\n"+
-		"threshold=80\n"+
-		"interval=300\n"+
-		"enabled=true\n"+
-		"```", idStr),
-		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nll"}}})
-}
-
-func handleTgAdminLoadAlertEditSubmit(chatID int64, param string) {
-	parts := strings.SplitN(param, "|", 2)
-	if len(parts) < 2 {
-		tgSend(chatID, "❌ 参数格式错误")
-		return
-	}
-	id := parseInt(parts[0])
-	params := parseKeyValueParams(parts[1])
-	params["id"] = id
-
-	if v, ok := params["threshold"]; ok {
-		params["threshold"] = parseFloat(v.(string))
-	}
-	if v, ok := params["interval"]; ok {
-		params["interval"] = parseInt(v.(string))
-	}
-	if v, ok := params["enabled"]; ok {
-		params["enabled"] = v.(string) == "true"
-	}
-
-	err := adminEditLoadAlert(params)
-	if err != nil {
-		tgSend(chatID, "❌ 编辑失败: "+err.Error())
-		return
-	}
-	tgSendKB(chatID, "✅ 负载告警规则已更新", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nll"}}})
-}
-
-// ============================================================
-// 7. Notification - Traffic Report Edit
-// ============================================================
-
-func handleTgAdminTrafficReportEdit(chatID int64) {
-	setUserState(chatID, "edit_traffic_report")
-	tgSendKB(chatID, "✏️ *编辑流量报告配置*\n\n"+
-		"请按以下格式发送参数:\n\n"+
-		"```\n"+
-		"enabled=true\n"+
-		"interval=86400\n"+
-		"type=daily\n"+
-		"```\n\n"+
-		"type可选: daily, weekly, monthly\n\n💡 随时输入 `取消` 退出",
-		[][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlt"}}})
-}
-
-func handleTgAdminTrafficReportEditSubmit(chatID int64, param string) {
-	params := parseKeyValueParams(param)
-	if v, ok := params["enabled"]; ok {
-		params["enabled"] = v.(string) == "true"
-	}
-	if v, ok := params["interval"]; ok {
-		params["interval"] = parseInt(v.(string))
-	}
-	err := adminEditTrafficReport(params)
-	if err != nil {
-		tgSend(chatID, "❌ 编辑失败: "+err.Error())
-		return
-	}
-	tgSendKB(chatID, "✅ 流量报告配置已更新", [][]InlineButton{{{Text: "⬅️ 返回", CallbackData: "adm_nlt"}}})
 }
 
 // ============================================================
@@ -2582,15 +2255,19 @@ func handleTgAdminClearRecordsSubmit(chatID int64, param string) {
 // 13. Session Management - Remove Specific Session
 // ============================================================
 
-func handleTgAdminRemoveSessionConfirm(chatID int64, id string) {
-	tgSendKB(chatID, fmt.Sprintf("⚠️ *确认删除会话 #%s?*\n\n此操作将使该会话失效!", id),
+func handleTgAdminRemoveSessionConfirm(chatID int64, sessionToken string) {
+	short := sessionToken
+	if len(short) > 12 {
+		short = short[:12] + "..."
+	}
+	tgSendKB(chatID, fmt.Sprintf("⚠️ *确认删除会话?*\n\nToken: `%s`\n\n此操作将使该会话失效!", short),
 		[][]InlineButton{
-			{{Text: "✅ 确认删除", CallbackData: "adm_sessdy:" + id}, {Text: "❌ 取消", CallbackData: "adm_sess"}},
+			{{Text: "✅ 确认删除", CallbackData: "adm_sessdy:" + sessionToken}, {Text: "❌ 取消", CallbackData: "adm_sess"}},
 		})
 }
 
-func handleTgAdminRemoveSession(chatID int64, id string) {
-	err := adminRemoveSession(id)
+func handleTgAdminRemoveSession(chatID int64, sessionToken string) {
+	err := adminRemoveSession(sessionToken)
 	if err != nil {
 		tgSend(chatID, "❌ 删除失败: "+err.Error())
 		return
@@ -2640,4 +2317,15 @@ func parseUint64(s string) uint64 {
 	var u uint64
 	fmt.Sscanf(s, "%d", &u)
 	return u
+}
+
+// matchCmdPrefix 匹配 "命令 " 或 "命令\t" 前缀，返回参数部分和是否匹配
+func matchCmdPrefix(content, cmd string) (string, bool) {
+	for _, sep := range []byte{' ', '\t'} {
+		prefix := cmd + string(sep)
+		if strings.HasPrefix(content, prefix) {
+			return strings.TrimSpace(content[len(prefix):]), true
+		}
+	}
+	return "", false
 }

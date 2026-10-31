@@ -555,34 +555,6 @@ func fmtNodeList(nodes []KomariNode) string {
 	return s.String()
 }
 
-func fmtNodeListWithStatus(nodes []KomariNode) string {
-	if len(nodes) == 0 {
-		return "暂无节点"
-	}
-	statusMap := getAllNodeStatus()
-	var s strings.Builder
-	s.WriteString(fmt.Sprintf("共 %d 个节点:\n\n", len(nodes)))
-	for i, n := range nodes {
-		emoji := "🔴"
-		if n.Hidden {
-			emoji = "🙈"
-		} else if statusMap != nil {
-			if _, ok := statusMap[n.UUID]; ok {
-				emoji = "🟢"
-			}
-		}
-		s.WriteString(fmt.Sprintf("%d. %s %s", i+1, emoji, n.Name))
-		if n.Region != "" {
-			s.WriteString(" " + n.Region)
-		}
-		if n.Group != "" {
-			s.WriteString(" [" + n.Group + "]")
-		}
-		s.WriteString("\n")
-	}
-	return s.String()
-}
-
 func fmtCPUUsageRank(nodes []KomariNode) string {
 	type nodeCPU struct {
 		Name string
@@ -757,6 +729,22 @@ func fmtOfflineNodes() string {
 		if n.Group != "" {
 			s.WriteString(" [" + n.Group + "]")
 		}
+		// 尝试获取私有备注
+		if adminNode, err := adminGetClient(n.UUID); err == nil {
+			if adminNode.Remark != "" {
+				s.WriteString(fmt.Sprintf("\n   🔒 %s", adminNode.Remark))
+			}
+			if adminNode.PublicRemark != "" {
+				s.WriteString(fmt.Sprintf("\n   📝 %s", adminNode.PublicRemark))
+			}
+		} else {
+			if n.Remark != "" {
+				s.WriteString(fmt.Sprintf("\n   🔒 %s", n.Remark))
+			}
+			if n.PublicRemark != "" {
+				s.WriteString(fmt.Sprintf("\n   📝 %s", n.PublicRemark))
+			}
+		}
 		s.WriteString("\n")
 	}
 	return s.String()
@@ -808,6 +796,34 @@ func isUserAllowed(uid int64) bool {
 		}
 	}
 	return false
+}
+
+func fmtInstallCommands(name, uuid, token string) string {
+	siteURL := strings.TrimRight(KomariUrl, "/")
+	linuxURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh")
+	winURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1")
+	linuxCmd := fmt.Sprintf("wget -qO- %s | sudo bash -s -- -e %s -t %s", linuxURL, siteURL, token)
+	winCmd := fmt.Sprintf("powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"iwr '%s' -UseBasicParsing -OutFile 'install.ps1'; & '.\\install.ps1' '-e' '%s' '-t' '%s'\"", winURL, siteURL, token)
+	var s strings.Builder
+	s.WriteString(fmt.Sprintf("🔑 客户端 Token\n\n名称: %s\nUUID: %s\nToken: %s\n\n", name, uuid, token))
+	s.WriteString("📦 Linux 一键安装:\n" + linuxCmd + "\n\n")
+	s.WriteString("📦 Windows PowerShell:\n" + winCmd + "\n\n")
+	s.WriteString("📦 macOS / FreeBSD:\n手动下载: https://github.com/komari-monitor/komari-agent/releases")
+	return s.String()
+}
+
+func fmtInstallCommandsMarkdown(name, uuid, token string) string {
+	siteURL := strings.TrimRight(KomariUrl, "/")
+	linuxURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.sh")
+	winURL := ghURL("https://raw.githubusercontent.com/komari-monitor/komari-agent/refs/heads/main/install.ps1")
+	linuxCmd := fmt.Sprintf("wget -qO- %s | sudo bash -s -- -e %s -t %s", linuxURL, siteURL, token)
+	winCmd := fmt.Sprintf("powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"iwr '%s' -UseBasicParsing -OutFile 'install.ps1'; & '.\\install.ps1' '-e' '%s' '-t' '%s'\"", winURL, siteURL, token)
+	var s strings.Builder
+	s.WriteString(fmt.Sprintf("🔑 *客户端 Token*\n\nUUID: `%s`\nToken: `%s`\n\n", uuid, token))
+	s.WriteString("📦 *Linux 一键安装:*\n```\n" + linuxCmd + "\n```\n")
+	s.WriteString("📦 *Windows PowerShell:*\n```\n" + winCmd + "\n```\n")
+	s.WriteString("📦 *macOS / FreeBSD:*\n手动下载: [GitHub Releases](https://github.com/komari-monitor/komari-agent/releases)")
+	return s.String()
 }
 
 // WeChat Work access token
@@ -943,14 +959,21 @@ func adminRemoveClient(uuid string) error {
 }
 
 func adminGetClientToken(uuid string) (string, error) {
-	client, err := adminGetClient(uuid)
+	b, err := komariReq("GET", "/api/admin/client/"+uuid+"/token")
 	if err != nil {
 		return "", err
 	}
-	if client.Token != "" {
-		return client.Token, nil
+	var r struct {
+		Status string `json:"status"`
+		Token  string `json:"token"`
 	}
-	return "", fmt.Errorf("token not found (Komari version may not support token API)")
+	if err := json.Unmarshal(b, &r); err != nil {
+		return "", err
+	}
+	if r.Token != "" {
+		return r.Token, nil
+	}
+	return "", fmt.Errorf("token not found in response")
 }
 
 // Notification management - offline
@@ -959,49 +982,74 @@ func adminListOfflineNotifications() (json.RawMessage, error) {
 }
 
 func adminEditOfflineNotification(params map[string]interface{}) error {
-	return komariAdminAction("POST", "/api/admin/notification/offline/edit", params)
+	data, err := adminListOfflineNotifications()
+	if err != nil {
+		return err
+	}
+	var notifications []map[string]interface{}
+	if err := json.Unmarshal(data, &notifications); err != nil {
+		return fmt.Errorf("解析离线通知配置失败: %v", err)
+	}
+	for i := range notifications {
+		if v, ok := params["enable"]; ok {
+			notifications[i]["enable"] = v == "true" || v == true
+		}
+		if v, ok := params["grace_period"]; ok {
+			switch gp := v.(type) {
+			case string:
+				notifications[i]["grace_period"] = parseInt(gp)
+			case float64:
+				notifications[i]["grace_period"] = int(gp)
+			case int:
+				notifications[i]["grace_period"] = gp
+			}
+		}
+	}
+	return komariAdminAction("POST", "/api/admin/notification/offline/edit", notifications)
 }
 
 func adminEnableOfflineNotification() error {
-	return komariAdminAction("POST", "/api/admin/notification/offline/enable", nil)
+	clients, err := adminListClients()
+	if err != nil {
+		return err
+	}
+	uuids := make([]string, 0, len(clients))
+	for _, c := range clients {
+		uuids = append(uuids, c.UUID)
+	}
+	return komariAdminAction("POST", "/api/admin/notification/offline/enable", uuids)
 }
 
 func adminDisableOfflineNotification() error {
-	return komariAdminAction("POST", "/api/admin/notification/offline/disable", nil)
+	clients, err := adminListClients()
+	if err != nil {
+		return err
+	}
+	uuids := make([]string, 0, len(clients))
+	for _, c := range clients {
+		uuids = append(uuids, c.UUID)
+	}
+	return komariAdminAction("POST", "/api/admin/notification/offline/disable", uuids)
 }
 
-// Notification management - load alerts
-func adminListLoadAlerts() (json.RawMessage, error) {
-	return komariAdminGetData("GET", "/api/admin/notification/load/", nil)
+// Notification management - channels (replaces old load/traffic endpoints)
+func adminListNotificationChannels() (json.RawMessage, error) {
+	return komariAdminGetData("GET", "/api/admin/notification/channels", nil)
 }
 
-func adminAddLoadAlert(params map[string]interface{}) error {
-	return komariAdminAction("POST", "/api/admin/notification/load/add", params)
+func adminGetNotificationChannelConfig(channelID string) (json.RawMessage, error) {
+	return komariAdminGetData("GET", fmt.Sprintf("/api/admin/notification/channel/configuration?id=%s", channelID), nil)
 }
 
-func adminDeleteLoadAlert(params map[string]interface{}) error {
-	return komariAdminAction("POST", "/api/admin/notification/load/delete", params)
+func adminSetNotificationChannelConfig(channelID string, data interface{}) error {
+	return komariAdminAction("POST", "/api/admin/notification/channel/configuration", map[string]interface{}{
+		"id":   channelID,
+		"data": data,
+	})
 }
 
-func adminEditLoadAlert(params map[string]interface{}) error {
-	return komariAdminAction("POST", "/api/admin/notification/load/edit", params)
-}
-
-// Notification management - traffic reports
-func adminListTrafficReports() (json.RawMessage, error) {
-	return komariAdminGetData("GET", "/api/admin/notification/traffic-report/", nil)
-}
-
-func adminEditTrafficReport(params map[string]interface{}) error {
-	return komariAdminAction("POST", "/api/admin/notification/traffic-report/edit", params)
-}
-
-func adminEnableTrafficReport() error {
-	return komariAdminAction("POST", "/api/admin/notification/traffic-report/enable", nil)
-}
-
-func adminDisableTrafficReport() error {
-	return komariAdminAction("POST", "/api/admin/notification/traffic-report/disable", nil)
+func adminTestNotification(event interface{}) error {
+	return komariAdminAction("POST", "/api/admin/test/sendMessage", map[string]interface{}{"event": event})
 }
 
 // Ping task management (admin)
@@ -1084,8 +1132,8 @@ func adminGetSessions() (json.RawMessage, error) {
 	return komariAdminGetData("GET", "/api/admin/session/get", nil)
 }
 
-func adminRemoveSession(id string) error {
-	return komariAdminAction("POST", "/api/admin/session/remove", map[string]interface{}{"id": id})
+func adminRemoveSession(sessionToken string) error {
+	return komariAdminAction("POST", "/api/admin/session/remove", map[string]interface{}{"session": sessionToken})
 }
 
 func adminRemoveAllSessions() error {
@@ -1360,4 +1408,59 @@ func fmtAdminNotifications(data json.RawMessage, title string) string {
 		s.WriteString("\n")
 	}
 	return s.String()
+}
+
+func convertClientParams(params map[string]interface{}) {
+	if v, ok := params["weight"]; ok {
+		params["weight"] = parseFloat(v.(string))
+	}
+	if v, ok := params["hidden"]; ok {
+		params["hidden"] = v.(string) == "true"
+	}
+	if v, ok := params["price"]; ok {
+		params["price"] = parseFloat(v.(string))
+	}
+	if v, ok := params["billing_cycle"]; ok {
+		params["billing_cycle"] = parseInt(v.(string))
+	}
+	if v, ok := params["traffic_limit"]; ok {
+		params["traffic_limit"] = parseUint64(v.(string))
+	}
+	if v, ok := params["auto_renewal"]; ok {
+		params["auto_renewal"] = v.(string) == "true"
+	}
+}
+
+func convertPingTaskParams(params map[string]interface{}) {
+	if v, ok := params["interval"]; ok {
+		params["interval"] = parseInt(v.(string))
+	}
+	if v, ok := params["default_on"]; ok {
+		params["default_on"] = v.(string) == "true"
+	}
+	if v, ok := params["clients"]; ok {
+		params["clients"] = strings.Split(v.(string), ",")
+	}
+}
+
+func convertSettingsParams(params map[string]interface{}) {
+	for _, k := range []string{"record_enabled", "private_site", "allow_guest_view_node", "allow_guest_view_stats"} {
+		if v, ok := params[k]; ok {
+			params[k] = v.(string) == "true"
+		}
+	}
+	if v, ok := params["record_preserve_time"]; ok {
+		params["record_preserve_time"] = parseInt(v.(string))
+	}
+}
+
+// fmtCreatedClient 构建创建客户端后的响应消息（含 token + 安装命令）
+func fmtCreatedClient(name, uuid string) string {
+	token, _ := adminGetClientToken(uuid)
+	msg := fmt.Sprintf("✅ 客户端 '%s' 已添加\n\n", name)
+	msg += fmt.Sprintf("UUID: %s\n", uuid)
+	if token != "" {
+		msg += "\n" + fmtInstallCommands(name, uuid, token)
+	}
+	return msg
 }
